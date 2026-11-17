@@ -30,6 +30,13 @@ type Props = {
   intentTip?: string;
   maxlength?: number;
   onIntentBlur?: () => void;
+  draftLabel?: string;
+  onDraft?: () => void;
+  adjustLabel?: string;
+  onAdjust?: () => void;
+  choicesLabel?: string;
+  choices?: Array<{ id: string; label: string }>;
+  onChoice?: () => void;
 };
 
 export function CreateFormulaPanel({
@@ -45,6 +52,13 @@ export function CreateFormulaPanel({
   intentTip,
   maxlength = 300,
   onIntentBlur,
+  draftLabel,
+  onDraft,
+  adjustLabel,
+  onAdjust,
+  choicesLabel,
+  choices,
+  onChoice,
 }: Props) {
   useEffect(() => {
     syncFormulaTextareaHeight();
@@ -58,12 +72,15 @@ export function CreateFormulaPanel({
 
       <View className="create-formula__head">
         <View className="create-formula__head-left">
-          <View className="create-formula__sigil">
-            <Icon name="flask" size="sm" accent />
-          </View>
           <Text className="create-formula__title">{intentLabel}</Text>
         </View>
-        {onPolish && (
+        <View className="create-formula__head-actions">
+          {onDraft && draftLabel ? (
+            <Text className="create-formula__draft" onClick={onDraft}>
+              {draftLabel}
+            </Text>
+          ) : null}
+          {onPolish && (
           <View
             className={`create-formula__polish ${polishing ? "create-formula__polish--loading" : ""}`}
             onClick={polishing ? undefined : onPolish}
@@ -72,6 +89,7 @@ export function CreateFormulaPanel({
             <Text className="create-formula__polish-text">{polishing ? polishingLabel : polishLabel}</Text>
           </View>
         )}
+        </View>
       </View>
 
       <View className="create-formula__prompt">
@@ -93,12 +111,31 @@ export function CreateFormulaPanel({
           />
         </View>
         <View className="create-formula__prompt-foot">
-          <Text className="create-formula__hint">{intentHint}</Text>
+          {intentHint ? <Text className="create-formula__hint">{intentHint}</Text> : <View className="create-formula__foot-spacer" />}
+          {onAdjust && adjustLabel ? (
+            <View className="create-formula__adjust" onClick={onAdjust}>
+              <Text className="create-formula__adjust-text">{adjustLabel}</Text>
+              <Icon name="chevronDown" size="sm" />
+            </View>
+          ) : null}
           <Text className="create-formula__count">
             {textIntent.length}/{maxlength}
           </Text>
         </View>
       </View>
+
+      {choices && choices.length > 0 ? (
+        <View className="create-formula__choices">
+          {choicesLabel ? <Text className="create-formula__choices-label">{choicesLabel}</Text> : null}
+          <View className="create-formula__choice-row">
+            {choices.map((chip) => (
+              <Text key={chip.id} className="create-formula__choice" onClick={onChoice}>
+                {chip.label}
+              </Text>
+            ))}
+          </View>
+        </View>
+      ) : null}
 
       {intentTip && (
         <View className="create-formula__tip">

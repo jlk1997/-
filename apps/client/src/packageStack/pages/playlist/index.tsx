@@ -11,6 +11,7 @@ import { Button, ChipGroup, LoadingSkeleton, Input, ImmersiveCover, StatPill } f
 import { vibeApi } from "../../../services/api";
 import { bootstrapAuth, requireAuth, isLoggedIn } from "../../../utils/auth";
 import { persistActiveGeneration, resolveRestorableJobId } from "../../../utils/restoreGeneration";
+import { stackPage } from "../../../constants/routes";
 import "./index.scss";
 
 export default function PlaylistPage() {
@@ -30,6 +31,8 @@ export default function PlaylistPage() {
   const [activeJobId, setActiveJobId] = useState(jobId || "");
   const [jobStartedAt, setJobStartedAt] = useState<string | undefined>();
   const sequentialRef = useRef(false);
+
+  const playlistNext = stackPage("playlist", { id: playlistIdParam, jobId });
 
   useShareAppMessage(() => {
     if (!playlist) return { title: `${copy.brand.name} · ${copy.pages.journey.title}`, path: "/pages/create/index" };
@@ -119,7 +122,7 @@ export default function PlaylistPage() {
   }, [playlistIdParam, p.loadFail]);
 
   async function saveTitle() {
-    if (!playlist || !requireAuth()) return;
+    if (!playlist || !requireAuth(playlistNext)) return;
     try {
       const updated = await vibeApi.updatePlaylist(playlist.id, { title: editTitle.trim() || playlist.title });
       setPlaylist({ ...playlist, title: updated.title });
@@ -136,7 +139,7 @@ export default function PlaylistPage() {
   }
 
   async function saveVisibility(next: "public" | "private" | "unlisted") {
-    if (!playlist || !requireAuth()) return;
+    if (!playlist || !requireAuth(playlistNext)) return;
     setVisibility(next);
     try {
       await vibeApi.publishPlaylist(playlist.id, next);
@@ -154,7 +157,7 @@ export default function PlaylistPage() {
   }
 
   async function toggleSubscribe() {
-    if (!playlist || !requireAuth() || isOwner) return;
+    if (!playlist || !requireAuth(playlistNext) || isOwner) return;
     setSubscribing(true);
     try {
       if (subscribed) {

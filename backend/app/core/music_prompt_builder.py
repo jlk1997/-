@@ -38,6 +38,10 @@ class MusicCreativeSpec(BaseModel):
     style_tags: str = ""
     journey_hint: str = ""
     custom_prompt_override: str = ""
+    # 人声只写进描述，模型没有单独的性别或唱法参数，不保证命中。
+    vocal_gender: str = ""
+    vocal_style: str = ""
+    language: str = ""
     # 情绪坐标（1-9）：arousal=能量，valence=明暗。来自情绪诊断/情绪盘，
     # 通过 av_to_prompt_tokens() 转成能量词/明暗词/tempo 注入提示词。
     arousal: float | None = Field(default=None, ge=1, le=9)
@@ -60,6 +64,9 @@ class MusicCreativeSpec(BaseModel):
             or self.custom_prompt_override.strip()
             or self.arousal is not None
             or self.valence is not None
+            or self.vocal_gender
+            or self.vocal_style
+            or self.language
         )
 
 
@@ -132,6 +139,38 @@ def _instrument_phrase(instruments: list[str]) -> str:
     return f"featuring {', '.join(tokens)}"
 
 
+_VOCAL_GENDER = {
+    "female": "female vocal",
+    "male": "male vocal",
+    "duet": "male and female duet",
+}
+_VOCAL_STYLE = {
+    "rap": "rap vocal",
+    "breathy": "breathy vocal",
+    "belt": "powerful vocal",
+}
+_LANGUAGE = {
+    "zh": "Mandarin lyrics",
+    "en": "English lyrics",
+    "yue": "Cantonese lyrics",
+    "ja": "Japanese lyrics",
+}
+
+
+def _vocal_phrase(spec: MusicCreativeSpec) -> str:
+    bits: list[str] = []
+    gender = _VOCAL_GENDER.get((spec.vocal_gender or "").strip())
+    style = _VOCAL_STYLE.get((spec.vocal_style or "").strip())
+    language = _LANGUAGE.get((spec.language or "").strip())
+    if gender:
+        bits.append(gender)
+    if style:
+        bits.append(style)
+    if language:
+        bits.append(language)
+    return ", ".join(bits)
+
+
 def _resolve_list(values: list[str]) -> list[str]:
     return [resolve_prompt_token(v) for v in values if v and v.strip()]
 
@@ -147,6 +186,10 @@ def build_minimax_prompt(spec: MusicCreativeSpec) -> str:
     inst = _instrument_phrase(spec.instruments)
     if inst:
         parts.append(inst)
+
+    vocal = _vocal_phrase(spec)
+    if vocal:
+        parts.append(vocal)
 
     style_tags = (spec.style_tags or "").strip()
     if style_tags:

@@ -67,6 +67,18 @@ def distribute_challenge_prizes(db: Session, challenge: Challenge) -> dict:
         user = db.query(User).filter(User.id == entry.user_id).first()
         work = db.query(Work).filter(Work.id == entry.work_id).first()
         if user and work:
+            from app.services.distribution.automation import stamp_release_priority
+            from app.services.notifications import create_notification
+
+            stamp_release_priority(
+                work,
+                reason="challenge_winner",
+                rank=i + 1,
+                label=f"{challenge.title} #{i + 1}",
+            )
+            from app.services.radio.network import stamp_radio_feature
+
+            stamp_radio_feature(work, reason="challenge_winner", rank=i + 1, stations=["weekend", "daily"])
             notify_challenge_award(
                 db,
                 entry.user_id,
@@ -74,6 +86,20 @@ def distribute_challenge_prizes(db: Session, challenge: Challenge) -> dict:
                 rank=i + 1,
                 credits=amount,
                 work_title=work.title,
+                work_id=str(work.id),
+                challenge_slug=getattr(challenge, "slug", None),
+            )
+            create_notification(
+                db,
+                entry.user_id,
+                "release_hint",
+                {
+                    "work_id": str(work.id),
+                    "reason": "challenge_winner",
+                    "rank": i + 1,
+                    "message": "挑战胜出，已进入厂牌优先代发队列",
+                },
+                commit=False,
             )
 
     challenge.awards_distributed = True

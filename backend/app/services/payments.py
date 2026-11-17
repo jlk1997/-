@@ -37,7 +37,9 @@ async def create_payment(
     if channel == "stripe":
         if is_subscription_product(pack_id):
             return await billing_service.create_subscription_checkout(db, user, plan_id=pack_id)
-        return await billing_service.create_stripe_checkout(db, user, pack_id)
+        return await billing_service.create_stripe_checkout(
+            db, user, pack_id, payment_terms_version=payment_terms_version
+        )
 
     if channel == "alipay":
         if scene not in ("web", "h5"):

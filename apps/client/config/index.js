@@ -37,6 +37,24 @@ function webpackPackages(chain) {
     .end();
 }
 
+function webpackHashedAssets(chain) {
+  chain.output.filename("js/[name].[contenthash:8].js");
+  chain.output.chunkFilename("js/[name].[contenthash:8].js");
+  const hashCss = (args) => {
+    const opts = args[0] || {};
+    args[0] = {
+      ...opts,
+      ignoreOrder: true,
+      filename: "css/[name].[contenthash:8].css",
+      chunkFilename: "css/[name].[contenthash:8].css",
+    };
+    return args;
+  };
+  ["miniCssExtractPlugin", "mini-css-extract-plugin"].forEach((name) => {
+    if (chain.plugins.has(name)) chain.plugin(name).tap(hashCss);
+  });
+}
+
 function webpackSplit(chain) {
   chain.optimization.splitChunks({
     chunks: "all",
@@ -60,6 +78,9 @@ function webpackSplit(chain) {
       stack: { test: /[\\/]packageStack[\\/]/, name: "chunk-stack", priority: 25 },
       commerce: { test: /[\\/]packageCommerce[\\/]/, name: "chunk-commerce", priority: 25 },
       copilot: { test: /[\\/]packageCopilot[\\/]/, name: "chunk-copilot", priority: 25 },
+      social: { test: /[\\/]packageSocial[\\/]/, name: "chunk-social", priority: 25, chunks: "async" },
+      studio: { test: /[\\/]packageStudio[\\/]/, name: "chunk-studio", priority: 25, chunks: "async" },
+      creator: { test: /[\\/]packageCreator[\\/]/, name: "chunk-creator", priority: 25, chunks: "async" },
       vendors: {
         test: /[\\/]node_modules[\\/]/,
         name: "vendors",
@@ -143,6 +164,12 @@ module.exports = function (merge) {
     },
     miniCssExtractPluginOption: {
       ignoreOrder: true,
+      ...(isH5
+        ? {
+            filename: "css/[name].[contenthash:8].css",
+            chunkFilename: "css/[name].[contenthash:8].css",
+          }
+        : {}),
     },
   };
 
@@ -150,6 +177,7 @@ module.exports = function (merge) {
     webpackPackages(chain);
     webpackResolve(chain);
     if (isH5) {
+      webpackHashedAssets(chain);
       webpackSplit(chain);
     } else {
       webpackMiniReactSingleton(chain);
@@ -162,7 +190,13 @@ module.exports = function (merge) {
       h5: {
         publicPath: "/",
         staticDirectory: "static",
-        router: { mode: isWatch ? "hash" : "browser" },
+        output: {
+          filename: "js/[name].[contenthash:8].js",
+          chunkFilename: "js/[name].[contenthash:8].js",
+        },
+        // Always hash. WeChat's in-app browser treats history.pushState path
+        // changes as a new document and remounts the first tab (创作).
+        router: { mode: "hash" },
         devServer: {
           port: 10086,
           host: "0.0.0.0",

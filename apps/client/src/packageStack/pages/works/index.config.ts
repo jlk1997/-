@@ -1,5 +1,3 @@
 export default {
-  navigationBarTitleText: "Vibe Sorcery",
-  enablePullDownRefresh: true,
-  backgroundTextStyle: "dark",
+  navigationBarTitleText: "作品管理",
 };

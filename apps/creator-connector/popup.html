@@ -1,0 +1,183 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>比特音连接器</title>
+    <style>
+      :root {
+        --ink: #1b1b1b;
+        --muted: #5b5b5b;
+        --line: #e6e1d8;
+        --ok: #0a7a32;
+        --err: #b42318;
+        --accent: #5b3cc4;
+        --bg: #f7f4ee;
+        --busy: #5b3cc4;
+      }
+      body {
+        font: 13px/1.45 "Segoe UI", "PingFang SC", sans-serif;
+        width: 392px;
+        margin: 0;
+        padding: 14px 14px 16px;
+        color: var(--ink);
+        background: var(--bg);
+      }
+      h3 { margin: 0 0 4px; font-size: 16px; }
+      label { display: block; margin: 8px 0 4px; font-weight: 600; }
+      input, select { width: 100%; box-sizing: border-box; padding: 6px 8px; }
+      button {
+        margin-top: 8px;
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #cfc6b5;
+        border-radius: 8px;
+        background: #fff;
+        cursor: pointer;
+      }
+      button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+      button:disabled { opacity: 0.55; cursor: wait; }
+      .hint { color: var(--muted); font-size: 12px; margin: 4px 0; }
+      .ok { color: var(--ok); }
+      .err { color: var(--err); }
+      .job, .seat, .preview, .step-card, .coach {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 8px;
+        margin-top: 8px;
+        background: #fff;
+      }
+      .coach.need { border-color: #c9b8f0; }
+      .coach.ok { border-color: #b7dfc4; }
+      .coach.err { border-color: #f0b8b4; }
+      .coach.busy { border-color: var(--busy); box-shadow: 0 0 0 2px rgba(91, 60, 196, 0.12); }
+      .coach b { display: block; margin-bottom: 4px; }
+      .row { display: flex; gap: 6px; }
+      .row button { margin-top: 0; }
+      .empty { border: 1px dashed #ccc; border-radius: 8px; padding: 12px; margin-top: 8px; color: var(--muted); }
+      .lane { font-size: 12px; color: #444; margin: 4px 0 8px; }
+      .steps { display: flex; gap: 6px; margin: 10px 0; }
+      .step {
+        flex: 1;
+        text-align: center;
+        font-size: 11px;
+        padding: 6px 4px;
+        border-radius: 999px;
+        background: #efe8dc;
+        color: #6b6458;
+      }
+      .step.on { background: var(--accent); color: #fff; }
+      .step.done { background: #d9efe0; color: var(--ok); }
+      .stores { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-top: 8px; }
+      .stores button { margin-top: 0; padding: 7px 4px; font-size: 12px; }
+      details { margin-top: 10px; }
+      .preview b { display: block; margin-bottom: 4px; }
+      .preview li { margin: 0 0 2px; }
+      .log { font-size: 12px; color: #444; max-height: 88px; overflow: auto; margin-top: 8px; }
+      .log div { margin: 2px 0; }
+      .hidden { display: none; }
+    </style>
+  </head>
+  <body>
+    <h3>比特音连接器</h3>
+    <p id="lane" class="lane">连上店，再同步播放。入账另开。</p>
+    <div class="steps">
+      <div id="step1" class="step on">1 配对</div>
+      <div id="step2" class="step">2 打开店</div>
+      <div id="step3" class="step">3 同步</div>
+    </div>
+    <div id="coach" class="coach need">
+      <b id="coachTitle">先配对</b>
+      <p id="coachHint" class="hint">回账户页点「发送到连接器」。</p>
+    </div>
+    <p id="heartbeat" class="hint">尚未配对</p>
+    <p id="channelHint" class="hint">当前店：未识别</p>
+    <button id="primary" class="primary">从剪贴板配对</button>
+    <div class="row">
+      <button id="openApp">去看账</button>
+      <button id="openStores">打开店</button>
+    </div>
+    <div class="row">
+      <button id="authorize">同步当前页</button>
+      <button id="unpair">断开配对</button>
+    </div>
+
+    <div id="openPanel" class="step-card hidden">
+      <b>打开已登录的店</b>
+      <p class="hint">密码只打在官方页。</p>
+      <div class="stores">
+        <button data-open="netease">网易云</button>
+        <button data-open="qq_music">QQ 音乐</button>
+        <button data-open="qishui">汽水</button>
+        <button data-open="kugou">酷狗</button>
+        <button data-open="kuwo">酷我</button>
+      </div>
+      <p class="hint">先稳国内流媒体。短视频店和海外店在「卡住了」。</p>
+    </div>
+
+    <div id="moreActions" class="step-card">
+      <details>
+        <summary class="hint">卡住了</summary>
+        <div class="row">
+          <button id="capture">读取当前页</button>
+          <button id="poll">拉取席位任务</button>
+        </div>
+        <div class="row">
+          <button id="importCsv">导入官方 CSV</button>
+          <button id="selfTest">本机夹具</button>
+        </div>
+        <button id="desk">卡住时打开工作台</button>
+        <div class="stores">
+          <button data-open="douyin_musician">抖音</button>
+          <button data-open="spotify">Spotify</button>
+          <button data-open="apple_music">Apple</button>
+          <button data-open="youtube_music">YouTube</button>
+        </div>
+      </details>
+    </div>
+
+    <div id="lastHarvest"></div>
+    <div id="seats"></div>
+    <details>
+      <summary class="hint">记录</summary>
+      <div id="jobs"></div>
+      <div id="activity" class="log"></div>
+    </details>
+    <p id="status" class="hint"></p>
+
+    <details>
+      <summary class="hint">高级设置</summary>
+      <label>API</label>
+      <input id="apiBase" placeholder="配对后自动填入" />
+      <label>令牌</label>
+      <input id="token" type="password" placeholder="vsc_…" />
+      <label>默认店</label>
+      <select id="channel">
+        <option value="netease">网易云音乐</option>
+        <option value="qq_music">QQ 音乐</option>
+        <option value="kugou">酷狗</option>
+        <option value="kuwo">酷我</option>
+        <option value="qishui">汽水</option>
+        <option value="bilibili">B 站</option>
+        <option value="wechat_channels">视频号</option>
+        <option value="douyin_musician">抖音音乐人</option>
+        <option value="kuaishou_musician">快手音乐人</option>
+        <option value="spotify">Spotify</option>
+        <option value="apple_music">Apple Music</option>
+        <option value="youtube_music">YouTube Music</option>
+        <option value="tiktok_music">TikTok</option>
+        <option value="amazon_music">Amazon Music</option>
+        <option value="deezer">Deezer</option>
+        <option value="soundcloud">SoundCloud</option>
+        <option value="bandcamp">Bandcamp</option>
+      </select>
+      <label>账期</label>
+      <input id="period" placeholder="2026-08" />
+      <button id="save">保存设置</button>
+    </details>
+    <input id="csvFile" type="file" accept=".csv,text/csv" hidden />
+    <script src="ui-shared.js"></script>
+    <script src="harvest-core.js"></script>
+    <script src="runner-core.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>

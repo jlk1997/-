@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, validate_api_scopes, get_optional_user
-from app.api.routes.works import work_to_response
+from app.api.routes.works import works_to_responses
 from app.api.schemas import PostResponse, PublicProfileResponse
 from app.database import get_db
 from app.models.schemas import Follow, User, UserPreference, Work
@@ -13,9 +13,17 @@ from app.services.feed import build_user_posts
 router = APIRouter(prefix="/users", tags=["users"])
 
 
+class NotifyPrefsUpdate(BaseModel):
+    in_app: bool | None = None
+    wechat: bool | None = None
+    email: bool | None = None
+    recall: bool | None = None
+
+
 class PreferencesUpdate(BaseModel):
     mood_tags: list[str] = []
     genre_tags: list[str] = []
+    notify: NotifyPrefsUpdate | None = None
 
 
 class ProfileUpdate(BaseModel):
@@ -34,12 +42,18 @@ class ConsentsUpdate(BaseModel):
 
 @router.get("/me/preferences")
 def get_preferences(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from app.services.notify_prefs import get_notify_prefs
+
     pref = db.query(UserPreference).filter(UserPreference.user_id == user.id).first()
     if not pref:
         pref = UserPreference(user_id=user.id, mood_tags=[], genre_tags=[])
         db.add(pref)
         db.commit()
-    return {"mood_tags": pref.mood_tags or [], "genre_tags": pref.genre_tags or []}
+    return {
+        "mood_tags": pref.mood_tags or [],
+        "genre_tags": pref.genre_tags or [],
+        "notify": get_notify_prefs(db, user.id),
+    }
 
 
 @router.put("/me/preferences")
@@ -48,6 +62,8 @@ def update_preferences(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    from app.services.notify_prefs import get_notify_prefs, set_notify_prefs
+
     pref = db.query(UserPreference).filter(UserPreference.user_id == user.id).first()
     if not pref:
         pref = UserPreference(user_id=user.id)
@@ -55,7 +71,10 @@ def update_preferences(
     pref.mood_tags = payload.mood_tags
     pref.genre_tags = payload.genre_tags
     db.commit()
-    return {"mood_tags": pref.mood_tags, "genre_tags": pref.genre_tags}
+    notify = get_notify_prefs(db, user.id)
+    if payload.notify is not None:
+        notify = set_notify_prefs(db, user.id, payload.notify.model_dump(exclude_none=True))
+    return {"mood_tags": pref.mood_tags, "genre_tags": pref.genre_tags, "notify": notify}
 
 
 @router.get("/me/profile")
@@ -109,9 +128,9 @@ def user_progress(user: User = Depends(get_current_user), db: Session = Depends(
 
 @router.get("/me/emotion-calendar")
 def get_emotion_calendar(user: User = Depends(get_current_user), db: Session = Depends(get_db), days: int = 60):
-    from app.services.emotion_calendar import list_entries
+    from app.services.emotion_calendar import list_entries, week_drop_plan
 
-    return {"entries": list_entries(db, user.id, days=days)}
+    return {"entries": list_entries(db, user.id, days=days), "week_drop": week_drop_plan(db, user)}
 
 
 @router.get("/me/emotion-calendar/monthly")
@@ -243,6 +262,9 @@ def update_profile(
     if "bio" in moderated:
         user.bio = moderated["bio"]
     db.commit()
+    from app.api.routes.auth import invalidate_me_cache
+
+    invalidate_me_cache(user.id)
     return {"display_name": user.display_name, "bio": user.bio, "avatar_url": user.avatar_url}
 
 
@@ -281,6 +303,9 @@ def confirm_avatar_upload(
     storage = get_storage_service()
     user.avatar_url = storage.get_presigned_url(payload.storage_key)
     db.commit()
+    from app.api.routes.auth import invalidate_me_cache
+
+    invalidate_me_cache(user.id)
     return {"avatar_url": user.avatar_url}
 
 
@@ -481,13 +506,23 @@ def get_public_profile(
             is not None
         )
 
+    from app.services.royalty.showcase import build_profile_showcase
+
+    showcase = build_profile_showcase(db, user)
     return PublicProfileResponse(
         username=user.username,
         display_name=user.display_name,
         bio=user.bio,
         avatar_url=user.avatar_url,
-        stats={"works": works_count, "followers": followers, "following": following},
+        stats={
+            "works": works_count,
+            "followers": followers,
+            "following": following,
+            "live_store_total": showcase.get("live_store_total") or 0,
+            "commercial_works": showcase.get("commercial_works") or 0,
+        },
         is_following=is_following,
+        showcase=showcase,
     )
 
 
@@ -503,7 +538,7 @@ def get_public_works(username: str, db: Session = Depends(get_db)):
         .limit(50)
         .all()
     )
-    return [work_to_response(w) for w in works]
+    return works_to_responses(db, works)
 
 
 @router.get("/{username}/posts", response_model=list[PostResponse])

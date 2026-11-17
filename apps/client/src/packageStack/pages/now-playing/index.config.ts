@@ -1,1 +1,4 @@
-export default { navigationBarTitleText: "Vibe Sorcery", enableShareAppMessage: true };
+export default {
+  navigationBarTitleText: "正在播放",
+  enableShareAppMessage: true,
+};

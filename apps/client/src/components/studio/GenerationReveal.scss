@@ -8,6 +8,7 @@
 
 .gen-reveal--compact {
   animation: none;
+  margin-bottom: calc(#{$space-sm} + var(--mini-player-height, 0rpx));
 
   .gen-reveal__card {
     flex-direction: row;
@@ -38,6 +39,20 @@
   .gen-reveal__actions {
     margin-top: $space-2xs;
   }
+
+  .gen-reveal__cover-hint {
+    display: none;
+  }
+
+  .gen-reveal__cover-play {
+    left: 6rpx;
+    bottom: 6rpx;
+    padding: 4rpx 8rpx;
+  }
+
+  .gen-reveal__cover-play-label {
+    display: none;
+  }
 }
 
 .gen-reveal__card {
@@ -52,10 +67,28 @@
 }
 
 .gen-reveal__cover-wrap {
+  position: relative;
   width: 100%;
   aspect-ratio: 1;
   border-radius: $radius-md;
   overflow: hidden;
+}
+
+.gen-reveal__cover-play {
+  position: absolute;
+  left: 16rpx;
+  bottom: 16rpx;
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  padding: 8rpx 16rpx;
+  border-radius: 999rpx;
+  background: rgba(5, 5, 8, 0.62);
+}
+
+.gen-reveal__cover-play-label {
+  @extend .typo-meta;
+  color: #fff;
 }
 
 .gen-reveal__cover {
@@ -65,8 +98,18 @@
   filter: blur(12px);
 
   &--placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
     background: $slate-veil;
   }
+}
+
+.gen-reveal__cover-hint {
+  @extend .typo-meta;
+  color: $gold;
+  padding: 0 $space-xs;
+  text-align: center;
 }
 
 .gen-reveal__ai-badge {
@@ -76,10 +119,9 @@
 
 .gen-reveal__eyebrow {
   @extend .typo-meta;
-  color: $gold;
+  color: $muted;
   font-family: var(--font-display);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  letter-spacing: 0.02em;
 }
 
 .gen-reveal__title-row {
@@ -110,6 +152,13 @@
   color: $text;
 }
 
+.gen-reveal__artist {
+  @extend .typo-meta;
+  color: $gold;
+  display: block;
+  margin-top: 4rpx;
+}
+
 .gen-reveal__subtitle {
   @extend .typo-meta;
   color: $muted;
@@ -120,10 +169,60 @@
   color: $teal-mood;
 }
 
+.gen-reveal__degraded-text {
+  color: rgba(248, 180, 113, 0.95);
+  font-size: var(--text-meta);
+  line-height: 1.4;
+}
+
 .gen-reveal__actions {
   display: flex;
   flex-wrap: wrap;
   gap: $space-2xs;
+}
+
+.gen-reveal__verbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: $space-2xs;
+  width: 100%;
+  padding-top: 4rpx;
+
+  .ui-btn {
+    min-height: 88rpx;
+    min-width: 88rpx;
+  }
+}
+
+.gen-reveal__verb-hint {
+  display: block;
+  width: 100%;
+  color: $muted;
+  font-size: var(--text-micro);
+  line-height: 1.4;
+}
+
+.gen-reveal__suggest {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $space-2xs;
+  width: 100%;
+}
+
+.gen-reveal__suggest-needs,
+.gen-reveal__suggest-pack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $space-2xs;
+  width: 100%;
+}
+
+.gen-reveal__qc-later {
+  @extend .typo-meta;
+  color: $muted;
+  display: block;
+  width: 100%;
 }
 
 @keyframes gen-reveal-in {

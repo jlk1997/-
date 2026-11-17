@@ -11,20 +11,37 @@ type Props = {
   description?: string;
   actionLabel?: string;
   onAction?: () => void;
+  secondaryActionLabel?: string;
+  onSecondaryAction?: () => void;
   className?: string;
 };
 
-export function EmptyState({ icon = "♪", iconName, title, description, actionLabel, onAction, className }: Props) {
+export function EmptyState({
+  icon = "♪",
+  iconName,
+  title,
+  description,
+  actionLabel,
+  onAction,
+  secondaryActionLabel,
+  onSecondaryAction,
+  className,
+}: Props) {
   return (
     <View className={clsx("ui-empty", className)}>
       <View className="ui-empty__orb">
-        {iconName ? <Icon name={iconName} size="lg" accent /> : <Text className="ui-empty__icon">{icon}</Text>}
+        {iconName ? <Icon name={iconName} size="lg" muted /> : <Text className="ui-empty__icon">{icon}</Text>}
       </View>
       <Text className="ui-empty__title">{title}</Text>
       {description && <Text className="ui-empty__desc">{description}</Text>}
       {actionLabel && onAction && (
         <Button variant="primary" onClick={onAction} className="ui-empty__action">
           {actionLabel}
+        </Button>
+      )}
+      {secondaryActionLabel && onSecondaryAction && (
+        <Button variant="ghost" onClick={onSecondaryAction} className="ui-empty__action">
+          {secondaryActionLabel}
         </Button>
       )}
     </View>

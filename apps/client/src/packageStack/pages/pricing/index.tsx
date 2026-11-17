@@ -3,9 +3,10 @@ import { View, Text } from "@tarojs/components";
 import Taro, { useDidShow, useRouter } from "@tarojs/taro";
 import { useLocale } from "@vibe-sorcery/i18n";
 import { PageShell, SectionLabel } from "../../../components/PageShell";
-import { Button, CreditBarChart, CreditLedgerRow, Input, PaymentQRModal, PricingPackCard, RingGauge, SubscriptionManageCard, UsageMeter, showError, showSuccess } from "../../../components/ui";
+import { Button, Collapsible, CreditBarChart, CreditLedgerRow, Input, PaymentQRModal, PricingPackCard, RingGauge, SubscriptionManageCard, UsageMeter, showError, showSuccess } from "../../../components/ui";
 import { EngagementPanel } from "../../../components/engagement/EngagementPanel";
 import { CommercialAlertBanners } from "../../../components/commercial/CommercialAlertBanners";
+import { LaunchHonestyBanner } from "../../../components/commercial/LaunchHonestyBanner";
 import { MemberStatsPanel } from "../../../components/engagement/MemberStatsPanel";
 import { vibeApi } from "../../../services/api";
 import { bootstrapAuth, isLoggedIn, requireAuth } from "../../../utils/auth";
@@ -15,11 +16,12 @@ import { pollPaymentUntilPaid } from "../../../utils/paymentPoll";
 import { LegalFooter } from "../../../components/legal/LegalFooter";
 import { LEGAL_ROUTES } from "../../../utils/legal";
 import { getRequiredVersions } from "../../../utils/consent";
+import { STACK_PAGE_ROUTES } from "../../../constants/routes";
 import "./index.scss";
 
 export default function PricingPage() {
   const router = useRouter();
-  const { copy } = useLocale();
+  const { copy, locale } = useLocale();
   const p = copy.pricingUi;
   const c = copy.commercialUi;
   const eco = copy.ecosystemUi;
@@ -33,11 +35,19 @@ export default function PricingPage() {
       duel_starts?: number;
       description?: string;
       type?: string;
+      wechat_vpay_enabled?: boolean;
     }>
   >([]);
   const [duelQuota, setDuelQuota] = useState<Awaited<ReturnType<typeof vibeApi.getDuelQuota>> | null>(null);
   const [plans, setPlans] = useState<
-    Array<{ id: string; label: string; description?: string; price_cny_yuan?: number; monthly_credits: number }>
+    Array<{
+      id: string;
+      label: string;
+      description?: string;
+      price_cny_yuan?: number;
+      monthly_credits: number;
+      wechat_vpay_enabled?: boolean;
+    }>
   >([]);
   const [subscription, setSubscription] = useState<Awaited<ReturnType<typeof vibeApi.getSubscription>> | null>(null);
   const [buying, setBuying] = useState<string | null>(null);
@@ -64,6 +74,11 @@ export default function PricingPage() {
   const isH5 = process.env.TARO_ENV === "h5";
   const isWeapp = process.env.TARO_ENV === "weapp";
   const onIos = isWeappIos();
+  const chinaPay = !(isH5 && locale === "en");
+  const formatYuan = (yuan?: number) => {
+    if (yuan == null) return "—";
+    return locale === "en" ? `CNY ${yuan}` : `¥${yuan}`;
+  };
   const balance = creditsCtx?.balance ?? 0;
   const isMember = creditsCtx?.isMember || subscription?.status === "active";
   const lastUserFetchRef = useRef(0);
@@ -83,11 +98,14 @@ export default function PricingPage() {
   }, []);
 
   async function refreshUserData(force = false) {
-    await creditsCtx?.refresh();
-    if (!isLoggedIn()) return;
+    if (!isLoggedIn()) {
+      await creditsCtx?.refresh();
+      return;
+    }
     const now = Date.now();
     if (!force && now - lastUserFetchRef.current < USER_FETCH_TTL_MS) return;
     lastUserFetchRef.current = now;
+    await creditsCtx?.refresh();
     const [ordersRes, txRes, subRes, progressRes, quotaRes] = await Promise.allSettled([
       vibeApi.listPaymentOrders(),
       vibeApi.getCreditTransactions(),
@@ -152,6 +170,13 @@ export default function PricingPage() {
     return status;
   }
 
+  function orderChannelLabel(channel: string) {
+    if (channel === "wechat") return copy.creatorUi.channelWechat;
+    if (channel === "alipay") return copy.creatorUi.channelAlipay;
+    if (channel === "stripe") return eco.channelStripe;
+    return channel;
+  }
+
   async function ensurePaymentAgreed(): Promise<boolean> {
     if (paymentAgreed) return true;
     const res = await Taro.showModal({
@@ -176,7 +201,7 @@ export default function PricingPage() {
     channel: "wechat" | "alipay" | "stripe" = isWeapp ? "wechat" : "stripe",
     amountFen?: number,
   ) {
-    if (!requireAuth()) return;
+    if (!requireAuth(STACK_PAGE_ROUTES.pricing)) return;
     if (!(await ensurePaymentAgreed())) return;
     setBuying(`${productId}:${channel}`);
     vibeApi.trackEvent("payment_start", { product_id: productId, channel }).catch(() => {});
@@ -217,104 +242,15 @@ export default function PricingPage() {
 
   return (
     <PageShell label={copy.navGroups.account} title={p.pageTitle} subtitle={isH5 ? p.subtitleH5 : p.subtitleWeapp} wide ambient>
-      <View className="pricing-hero">
-        <Text className="pricing-hero__title">{p.heroTitle}</Text>
-        <Text className="pricing-hero__subtitle">{p.heroSubtitle}</Text>
-      </View>
+      <LaunchHonestyBanner surface="pricing" />
 
       {isLoggedIn() && <CommercialAlertBanners subscription={subscription} />}
 
-      {isLoggedIn() && <EngagementPanel />}
-
-      {isLoggedIn() && memberStats && (
-        <MemberStatsPanel stats={memberStats} isMember={isMember} />
-      )}
-
-      {isLoggedIn() && subscription?.status === "active" && (
-        <SubscriptionManageCard subscription={subscription} onUpdated={() => refreshUserData(true)} />
-      )}
-
-      <SectionLabel>{c.freeVsMember}</SectionLabel>
-      <View className="pricing-compare-table">
-        <View className="pricing-compare-table__row pricing-compare-table__head">
-          <Text />
-          <Text>{c.freeTier}</Text>
-          <Text>{c.memberTier}</Text>
-        </View>
-        <View className="pricing-compare-table__row">
-          <Text>{c.compareQueue}</Text>
-          <Text className="typo-meta">{c.compareQueueFree}</Text>
-          <Text className="typo-meta">{c.compareQueueMember}</Text>
-        </View>
-        <View className="pricing-compare-table__row">
-          <Text>{c.comparePresets}</Text>
-          <Text className="typo-meta">{c.comparePresetsFree}</Text>
-          <Text className="typo-meta">{c.comparePresetsMember}</Text>
-        </View>
-        <View className="pricing-compare-table__row">
-          <Text>{c.compareCredits}</Text>
-          <Text className="typo-meta">{c.compareCreditsFree}</Text>
-          <Text className="typo-meta">{c.compareCreditsMember}</Text>
-        </View>
-        <View className="pricing-compare-table__row">
-          <Text>{p.duelCompareRow}</Text>
-          <Text className="typo-meta">{p.duelCompareFree}</Text>
-          <Text className="typo-meta">{p.duelCompareMember}</Text>
-        </View>
-      </View>
-
-      {isLoggedIn() && duelQuota && (
-        <View className="pricing-duel-quota">
-          <SectionLabel>{p.duelQuotaTitle}</SectionLabel>
-          {duelQuota.is_member && (
-            <Text className="typo-meta">{p.duelQuotaMember.replace("{n}", String(duelQuota.member_free_remaining))}</Text>
-          )}
-          {duelQuota.pass_starts_remaining > 0 && (
-            <Text className="typo-meta">{p.duelQuotaPass.replace("{n}", String(duelQuota.pass_starts_remaining))}</Text>
-          )}
-          {!duelQuota.is_member && (
-            <Text className="typo-meta">{p.duelQuotaCost.replace("{n}", String(duelQuota.start_cost))}</Text>
-          )}
-        </View>
-      )}
-
-      <View className="pricing-value-cards">
-        <View className="pricing-value-card">
-          <Text className="pricing-value-card__title">{c.valueFreeTitle}</Text>
-          <Text className="typo-meta">{c.valueFreeDesc}</Text>
-        </View>
-        <View className="pricing-value-card">
-          <Text className="pricing-value-card__title">{c.valuePackTitle}</Text>
-          <Text className="typo-meta">{c.valuePackDesc}</Text>
-        </View>
-        <View className="pricing-value-card pricing-value-card--featured">
-          <Text className="pricing-value-card__title">{c.valueMemberTitle}</Text>
-          <Text className="typo-meta">{c.valueMemberDesc}</Text>
-        </View>
-      </View>
-
       {isLoggedIn() && (
         <View className="pricing-balance">
-          <RingGauge value={balance} max={Math.max(20, balance, plans[0]?.monthly_credits || 20)} label={p.balanceLabel} sublabel={copy.profileUi.creditsCard.replace("{n}", String(balance))} />
+          <RingGauge value={balance} max={Math.max(20, balance, plans[0]?.monthly_credits || 20)} label={p.heroTitle} />
         </View>
       )}
-
-      {chartItems.length > 0 && (
-        <>
-          <SectionLabel>{p.compareLabel}</SectionLabel>
-          <CreditBarChart items={chartItems} unit={p.creditUnit} />
-        </>
-      )}
-
-      <View className="pricing-consent-hint">
-        <Text className="pricing-consent-hint__text">{copy.paywallUi.payConsentInline}</Text>
-        <Text
-          className="pricing-consent-hint__link"
-          onClick={() => Taro.navigateTo({ url: LEGAL_ROUTES.paymentTerms }).catch(() => {})}
-        >
-          《{copy.legalUi.paymentTerms}》
-        </Text>
-      </View>
 
       <SectionLabel>{p.packsLabel}</SectionLabel>
       <View className="pricing-grid">
@@ -323,27 +259,37 @@ export default function PricingPage() {
           const expanded = expandedPacks.has(pack.id);
           const amountFen = Math.round((pack.price_cny_yuan ?? 0) * 100);
           return (
-          <PricingPackCard key={pack.id} label={pack.label} price={`¥${pack.price_cny_yuan ?? "—"}`} featured={isFeatured} badge={isFeatured ? p.bestValue : pack.type === "duel_pass" ? p.duelSeasonLabel : undefined}>
+          <PricingPackCard key={pack.id} label={pack.label} price={formatYuan(pack.price_cny_yuan)} featured={isFeatured} badge={isFeatured ? p.bestValue : pack.type === "duel_pass" ? p.duelSeasonLabel : undefined}>
             {pack.type === "duel_pass" && pack.duel_starts != null ? (
               <Text className="typo-meta pricing-pack__credits">
                 {pack.duel_starts}
                 {p.duelStartsUnit}
               </Text>
-            ) : pack.credits != null && pack.credits > 0 ? (
+            ) : pack.credits != null && pack.credits > 0 && !String(pack.label).includes(String(pack.credits)) ? (
               <Text className="typo-meta pricing-pack__credits">
                 {pack.credits} {p.creditUnit}
               </Text>
             ) : null}
             {pack.description && <Text className="typo-meta">{pack.description}</Text>}
-            <Button variant="primary" size="sm" block loading={buying?.startsWith(`${pack.id}:`)} onClick={() => pay(pack.id, pack.label, isWeapp ? "wechat" : "stripe", amountFen)}>
-              {isWeapp ? p.wechatPay : p.recharge}
+            <Button
+              variant="primary"
+              size="sm"
+              block
+              disabled={isWeapp && pack.wechat_vpay_enabled === false}
+              loading={buying?.startsWith(`${pack.id}:`)}
+              onClick={() => pay(pack.id, pack.label, isWeapp ? "wechat" : "stripe", amountFen)}
+            >
+              {isWeapp ? p.wechatPay : p.payStripe}
             </Button>
-            {isH5 && !expanded && (
+            {isWeapp && pack.wechat_vpay_enabled === false ? (
+              <Text className="typo-meta">{p.vpayNotConfigured}</Text>
+            ) : null}
+            {isH5 && chinaPay && !expanded && (
               <Button variant="ghost" size="sm" block onClick={() => setExpandedPacks((prev) => new Set(prev).add(pack.id))}>
                 {p.morePayMethods}
               </Button>
             )}
-            {isH5 && expanded && (
+            {isH5 && chinaPay && expanded && (
               <View className="pricing-pack__alt">
                 <Button size="sm" variant="secondary" loading={buying === `${pack.id}:alipay`} onClick={() => pay(pack.id, pack.label, "alipay", amountFen)}>
                   {p.alipay}
@@ -368,7 +314,7 @@ export default function PricingPage() {
               <PricingPackCard
                 key={plan.id}
                 label={plan.label}
-                price={`¥${plan.price_cny_yuan}${priceSuffix}`}
+                price={`${formatYuan(plan.price_cny_yuan)}${priceSuffix}`}
                 featured={!isYearly}
                 badge={isYearly ? c.yearlyBadge : undefined}
               >
@@ -382,20 +328,19 @@ export default function PricingPage() {
                 {subscription?.cancel_at_period_end && subscription.plan_id === plan.id && (
                   <Text className="typo-meta">{c.cancelPending}</Text>
                 )}
-                <View className="pricing-perks">
-                  <Text className="typo-meta">· {p.perkPriority}</Text>
-                  <Text className="typo-meta">· {p.perkPresets}</Text>
-                  <Text className="typo-meta">· {p.perkBadge}</Text>
-                </View>
                 <Button
                   variant="primary"
                   size="sm"
                   block
+                  disabled={isWeapp && plan.wechat_vpay_enabled === false}
                   loading={buying?.startsWith(plan.id)}
                   onClick={() => pay(plan.id, plan.label, isWeapp ? "wechat" : "stripe", Math.round((plan.price_cny_yuan ?? 0) * 100))}
                 >
-                  {isWeapp ? p.wechatPay : p.subscribe}
+                  {isWeapp ? p.wechatPay : p.payStripe}
                 </Button>
+                {isWeapp && plan.wechat_vpay_enabled === false ? (
+                  <Text className="typo-meta">{p.vpayNotConfigured}</Text>
+                ) : null}
               </PricingPackCard>
             );
           })}
@@ -408,25 +353,109 @@ export default function PricingPage() {
           {plans
             .filter((plan) => plan.id.startsWith("sub_team") || plan.id.startsWith("sub_api") || plan.id.startsWith("sub_pro"))
             .map((plan) => (
-              <PricingPackCard key={plan.id} label={plan.label} price={`¥${plan.price_cny_yuan}${p.perMonth}`}>
+              <PricingPackCard key={plan.id} label={plan.label} price={`${formatYuan(plan.price_cny_yuan)}${p.perMonth}`}>
                 {plan.description && <Text className="typo-meta">{plan.description}</Text>}
-                <Button variant="primary" size="sm" block loading={buying?.startsWith(plan.id)} onClick={() => pay(plan.id, plan.label, isWeapp ? "wechat" : "stripe", Math.round((plan.price_cny_yuan ?? 0) * 100))}>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  block
+                  disabled={isWeapp && plan.wechat_vpay_enabled === false}
+                  loading={buying?.startsWith(plan.id)}
+                  onClick={() => pay(plan.id, plan.label, isWeapp ? "wechat" : "stripe", Math.round((plan.price_cny_yuan ?? 0) * 100))}
+                >
                   {p.subscribe}
                 </Button>
+                {isWeapp && plan.wechat_vpay_enabled === false ? (
+                  <Text className="typo-meta">{p.vpayNotConfigured}</Text>
+                ) : null}
               </PricingPackCard>
             ))}
           <Text className="typo-meta">{eco.b2bSelfServeHint}</Text>
         </>
       )}
 
-      {(isWeapp || isH5) && cnRecurringMsg && (
-        <>
-          <SectionLabel>{eco.cnRecurringTitle}</SectionLabel>
-          <Text className="typo-meta">{cnRecurringMsg || eco.cnRecurringManual}</Text>
-        </>
+      {isLoggedIn() && subscription?.status === "active" && (
+        <SubscriptionManageCard subscription={subscription} onUpdated={() => refreshUserData(true)} />
       )}
 
-      {(isWeapp || isH5) && cnRecurringMsg && (
+      <Collapsible label={p.moreAbout} storageKey="pricing-more-about">
+        <SectionLabel>{c.freeVsMember}</SectionLabel>
+        <View className="pricing-compare-table">
+          <View className="pricing-compare-table__row pricing-compare-table__head">
+            <Text />
+            <Text>{c.freeTier}</Text>
+            <Text>{c.memberTier}</Text>
+          </View>
+          <View className="pricing-compare-table__row">
+            <Text>{c.compareQueue}</Text>
+            <Text className="typo-meta">{c.compareQueueFree}</Text>
+            <Text className="typo-meta">{c.compareQueueMember}</Text>
+          </View>
+          <View className="pricing-compare-table__row">
+            <Text>{c.comparePresets}</Text>
+            <Text className="typo-meta">{c.comparePresetsFree}</Text>
+            <Text className="typo-meta">{c.comparePresetsMember}</Text>
+          </View>
+          <View className="pricing-compare-table__row">
+            <Text>{c.compareCredits}</Text>
+            <Text className="typo-meta">{c.compareCreditsFree}</Text>
+            <Text className="typo-meta">{c.compareCreditsMember}</Text>
+          </View>
+          <View className="pricing-compare-table__row">
+            <Text>{p.duelCompareRow}</Text>
+            <Text className="typo-meta">{p.duelCompareFree}</Text>
+            <Text className="typo-meta">{p.duelCompareMember}</Text>
+          </View>
+          <View className="pricing-compare-table__row">
+            <Text>{c.compareRadio}</Text>
+            <Text className="typo-meta">{c.compareRadioFree}</Text>
+            <Text className="typo-meta">{c.compareRadioMember}</Text>
+          </View>
+        </View>
+
+        <View className="pricing-value-cards">
+          <View className="pricing-value-card">
+            <Text className="pricing-value-card__title">{c.valueFreeTitle}</Text>
+            <Text className="typo-meta">{c.valueFreeDesc}</Text>
+          </View>
+          <View className="pricing-value-card">
+            <Text className="pricing-value-card__title">{c.valuePackTitle}</Text>
+            <Text className="typo-meta">{c.valuePackDesc}</Text>
+          </View>
+          <View className="pricing-value-card pricing-value-card--featured">
+            <Text className="pricing-value-card__title">{c.valueMemberTitle}</Text>
+            <Text className="typo-meta">{c.valueMemberDesc}</Text>
+          </View>
+        </View>
+
+        {isLoggedIn() && duelQuota && (
+          <View className="pricing-duel-quota">
+            <SectionLabel>{p.duelQuotaTitle}</SectionLabel>
+            {duelQuota.is_member && (
+              <Text className="typo-meta">{p.duelQuotaMember.replace("{n}", String(duelQuota.member_free_remaining))}</Text>
+            )}
+            {duelQuota.pass_starts_remaining > 0 && (
+              <Text className="typo-meta">{p.duelQuotaPass.replace("{n}", String(duelQuota.pass_starts_remaining))}</Text>
+            )}
+            {!duelQuota.is_member && (
+              <Text className="typo-meta">{p.duelQuotaCost.replace("{n}", String(duelQuota.start_cost))}</Text>
+            )}
+          </View>
+        )}
+
+        {chartItems.length > 0 && (
+          <>
+            <SectionLabel>{p.compareLabel}</SectionLabel>
+            <CreditBarChart items={chartItems} unit={p.creditUnit} formatPrice={formatYuan} />
+          </>
+        )}
+
+        {isLoggedIn() && <EngagementPanel />}
+        {isLoggedIn() && memberStats && <MemberStatsPanel stats={memberStats} isMember={isMember} />}
+      </Collapsible>
+
+      <Collapsible label={p.moreHelp} storageKey="pricing-more-help">
+      {(isWeapp || (isH5 && chinaPay)) && cnRecurringMsg && (
         <>
           <SectionLabel>{eco.cnRecurringTitle}</SectionLabel>
           <Text className="typo-meta">{cnRecurringMsg || eco.cnRecurringManual}</Text>
@@ -437,7 +466,7 @@ export default function PricingPage() {
               block
               loading={cnJoining}
               onClick={async () => {
-                if (!requireAuth()) return;
+                if (!requireAuth(STACK_PAGE_ROUTES.pricing)) return;
                 setCnJoining(true);
                 try {
                   await vibeApi.joinCnRecurringWaitlist(isWeapp ? "wechat" : "alipay");
@@ -470,7 +499,7 @@ export default function PricingPage() {
             block
             loading={supportSubmitting}
             onClick={async () => {
-              if (!requireAuth() || supportSubject.trim().length < 2 || supportBody.trim().length < 10) return;
+              if (!requireAuth(STACK_PAGE_ROUTES.pricing) || supportSubject.trim().length < 2 || supportBody.trim().length < 10) return;
               setSupportSubmitting(true);
               try {
                 await vibeApi.createSupportTicket({
@@ -495,7 +524,7 @@ export default function PricingPage() {
         </>
       )}
 
-      {isLoggedIn() && orders.length > 0 && (
+      {chinaPay && isLoggedIn() && orders.length > 0 && (
         <>
           <SectionLabel>{eco.invoiceTitle}</SectionLabel>
           <Input label={eco.invoiceOrderId} value={invoiceOrderId} onInput={(e) => setInvoiceOrderId(e.detail.value)} />
@@ -507,12 +536,12 @@ export default function PricingPage() {
             block
             loading={invoiceSubmitting}
             onClick={async () => {
-              if (!requireAuth() || !invoiceOrderId.trim() || !invoiceEmail.trim()) return;
+              if (!requireAuth(STACK_PAGE_ROUTES.pricing) || !invoiceOrderId.trim() || !invoiceEmail.trim()) return;
               setInvoiceSubmitting(true);
               try {
                 await vibeApi.requestInvoice({
                   order_id: invoiceOrderId.trim(),
-                  title: "炼金音坊服务",
+                  title: eco.invoiceDefaultTitle,
                   email: invoiceEmail.trim(),
                   tax_id: invoiceTaxId.trim() || undefined,
                 });
@@ -549,7 +578,7 @@ export default function PricingPage() {
             <View key={o.out_trade_no} className="pricing-order">
               <Text>{o.label}</Text>
               <Text className="pricing-order__status">
-                {orderStatusLabel(o.status)} · ¥{o.amount_yuan} · {o.channel}
+                {orderStatusLabel(o.status)} · {formatYuan(o.amount_yuan)} · {orderChannelLabel(o.channel)}
               </Text>
             </View>
           ))}
@@ -571,6 +600,7 @@ export default function PricingPage() {
           <Text className="typo-meta">{c.faqCrossPlatformA}</Text>
         </View>
       </View>
+      </Collapsible>
 
       {qrPay && (
         <PaymentQRModal

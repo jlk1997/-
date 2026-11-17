@@ -10,7 +10,7 @@ export type ActiveJobSnapshot = {
   workId?: string;
   startedAt?: string;
   remixSourceTitle?: string;
-  jobType?: "single" | "playlist" | "variations" | "remix";
+  jobType?: "single" | "playlist" | "variations" | "remix" | "workbench";
 };
 
 type ActiveJobContextValue = {

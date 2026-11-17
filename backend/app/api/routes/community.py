@@ -15,6 +15,7 @@ from app.services.feed import build_feed
 from app.services.tenant import tenant_id_for_user
 from app.api.rate_limits import check_generation_rate_limit
 from app.services.credits import REMIX_COST
+from app.services.legal import require_ai_notice
 from app.services.generation_gate import charge_generation_credits, with_credits_charged
 from app.services.generation_jobs import create_generation_job, lookup_idempotent_job
 from app.services.job_dispatch import dispatch_remix
@@ -43,6 +44,7 @@ def create_post(
     db: Session = Depends(get_db),
 ):
     work = get_owned_work(db, payload.work_id, user)
+    work = db.query(Work).filter(Work.id == work.id).with_for_update().first() or work
 
     existing = db.query(Post).filter(Post.work_id == work.id).first()
     if existing:
@@ -71,7 +73,11 @@ def create_post(
         consent_at=datetime.utcnow(),
     )
     db.add(post)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Work already published")
     db.refresh(post)
     from app.services.cache import cache_clear
 
@@ -148,6 +154,17 @@ def get_activity_stream(
             limit=min(max(limit, 1), 50),
         )
     }
+
+
+@router.get("/same-style-wall")
+def get_same_style_wall(
+    limit: int = 6,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_optional_user),
+):
+    from app.services.recommendation import list_same_style_wall
+
+    return {"works": list_same_style_wall(db, user, limit=min(max(limit, 1), 12))}
 
 
 @router.get("/rising-creators")
@@ -427,6 +444,7 @@ def remix_work(
         return {"job_id": str(existing.id), **credits_snapshot(db, user.id)}
 
     check_generation_rate_limit(user)
+    require_ai_notice(user)
     source = get_seed_work(db, work_id, user)
     if not can_remix_work(source):
         raise HTTPException(status_code=403, detail="原作者未开放二次创作")

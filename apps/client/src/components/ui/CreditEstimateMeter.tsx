@@ -35,7 +35,8 @@ export function CreditEstimateMeter({ mode, variations, onCreditsChange, onLowCr
       })
       .catch(() => {
         if (!alive) return;
-        const fallback = mode === "playlist" ? 3 : mode === "variation" ? variations || 3 : 1;
+        const fallback =
+          mode === "playlist" ? 3 : mode === "variation" ? (variations === 2 ? 1 : variations || 3) : 1;
         setCredits(fallback);
         onCreditsChange?.(fallback);
       });

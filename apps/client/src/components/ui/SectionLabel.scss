@@ -4,16 +4,6 @@
   display: flex;
   align-items: center;
   gap: $space-2xs;
-  margin: $space-lg 0 $space-sm;
-  color: rgba(136, 136, 170, 0.95);
-  letter-spacing: 0.06em;
-
-  &::before {
-    content: "";
-    width: 24rpx;
-    height: 3rpx;
-    border-radius: $radius-full;
-    background: linear-gradient(90deg, $accent, transparent);
-    flex-shrink: 0;
-  }
+  margin: $space-md 0 $space-xs;
+  color: $muted;
 }

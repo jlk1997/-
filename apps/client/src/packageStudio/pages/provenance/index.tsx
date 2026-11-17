@@ -5,10 +5,12 @@ import { useLocale } from "@vibe-sorcery/i18n";
 import { PageShell } from "../../../components/PageShell";
 import { LineageNode } from "../../../components/community/LineageNode";
 import { AiGeneratedBadge } from "../../../components/legal/AiGeneratedBadge";
-import { Button, ChipGroup, Collapsible, EmptyState, Icon, LoadingSkeleton, ProvenanceTimeline, RingGauge, StatPill } from "../../../components/ui";
+import { Button, ChipGroup, Collapsible, EmptyState, Icon, LoadingSkeleton, ProvenanceTimeline, RingGauge, SectionLabel, StatPill, StatusLine } from "../../../components/ui";
 import { vibeApi } from "../../../services/api";
+import { creatorPage } from "../../../constants/routes";
 import { bootstrapAuth } from "../../../utils/auth";
 import { shareWork, workSharePayload } from "../../../platform/share";
+import { openRadioPage } from "../../../utils/navigation";
 import "./index.scss";
 
 type Tab = "lineage" | "remix";
@@ -31,6 +33,7 @@ export default function ProvenancePage() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("lineage");
   const [derivatives, setDerivatives] = useState<Array<{ id: string; title: string }>>([]);
+  const [humanEdits, setHumanEdits] = useState<Array<{ kind?: string; section?: string; note?: string; at?: string }>>([]);
 
   useDidShow(async () => {
     if (!workId) return;
@@ -44,6 +47,7 @@ export default function ProvenancePage() {
         vibeApi.getDerivatives(workId).catch(() => []),
       ]);
       setLineage(prov.lineage || []);
+      setHumanEdits(prov.human_edits || []);
       setPipeline(prov.pipeline_version || "");
       setVerified(Boolean(verify.verified));
       setRemixTree(tree as TreeNode | null);
@@ -96,9 +100,33 @@ export default function ProvenancePage() {
         onChange={setTab}
       />
 
-      {!loading && tab === "lineage" && lineage.length === 0 && <EmptyState iconName="search" title={pv.emptyLineage} />}
+      {!loading && tab === "lineage" && lineage.length === 0 && (
+        <EmptyState
+          iconName="search"
+          title={pv.emptyLineage}
+          actionLabel={copy.engagementUi.radioOpen}
+          onAction={() => openRadioPage()}
+        />
+      )}
       {tab === "lineage" && lineage.length > 0 && (
-        <ProvenanceTimeline steps={lineage} stepLabel={pv.step} modelLabel={pv.modelLabel} />
+        <ProvenanceTimeline
+          steps={lineage}
+          stepLabel={pv.step}
+          modelLabel={pv.modelLabel}
+          workbenchLabel={pv.workbenchStep}
+          workbenchHint={pv.workbenchHint}
+        />
+      )}
+      {!loading && humanEdits.length > 0 && (
+        <View className="prov-derivatives">
+          <SectionLabel>{pv.humanEdits}</SectionLabel>
+          <StatusLine tone="success">{pv.humanEditsHint}</StatusLine>
+          {humanEdits.slice(-8).map((edit, index) => (
+            <Text key={`${edit.at || index}-${edit.section || edit.kind}`} className="prov-tech-line">
+              {`${edit.kind || "edit"}${edit.section ? ` · ${edit.section}` : ""}${edit.note ? ` · ${edit.note}` : ""}`}
+            </Text>
+          ))}
+        </View>
       )}
 
       {tab === "remix" && remixTree && (
@@ -106,7 +134,14 @@ export default function ProvenancePage() {
           <LineageNode node={remixTree} currentId={workId} />
         </View>
       )}
-      {tab === "remix" && !remixTree && !loading && <EmptyState iconName="remix" title={pv.emptyRemix} />}
+      {tab === "remix" && !remixTree && !loading && (
+        <EmptyState
+          iconName="remix"
+          title={pv.emptyRemix}
+          actionLabel={copy.engagementUi.radioOpen}
+          onAction={() => openRadioPage()}
+        />
+      )}
 
       {derivatives.length > 0 && (
         <View className="prov-derivatives">
@@ -124,11 +159,11 @@ export default function ProvenancePage() {
         </View>
       )}
 
-      {!loading && (
+      {!loading && !isWeapp && (
         <Collapsible label={pv.techDetails}>
           {lineage.map((step, i) => (
             <Text key={i} className="prov-tech-line">
-              {JSON.stringify(step).slice(0, 120)}…
+              {[step.type, step.pipeline_version, step.title].filter(Boolean).join(" · ") || pv.step}
             </Text>
           ))}
         </Collapsible>
@@ -143,6 +178,16 @@ export default function ProvenancePage() {
           className="prov-share-btn"
         >
           {pv.shareLineage}
+        </Button>
+      )}
+
+      {!loading && (
+        <Button
+          variant="ghost"
+          block
+          onClick={() => Taro.navigateTo({ url: creatorPage("passport", { workId }) })}
+        >
+          {copy.creatorUi.rightsCertificateTitle}
         </Button>
       )}
 

@@ -8,6 +8,7 @@ from typing import Any
 # Stable codes consumed by the client i18n layer.
 QUEUE_UNAVAILABLE = "QUEUE_UNAVAILABLE"
 QUEUE_TIMEOUT = "QUEUE_TIMEOUT"
+WORKER_LOST = "WORKER_LOST"
 QUEUE_OVERLOAD = "QUEUE_OVERLOAD"
 ACTIVE_JOB_LIMIT = "ACTIVE_JOB_LIMIT"
 RATE_LIMITED = "RATE_LIMITED"
@@ -65,10 +66,12 @@ def classify_error_message(message: str, *, partial: bool = False) -> str:
         return MINIMAX_RATE_LIMIT
     if (
         "余额不足" in msg
+        or "额度不足" in msg
         or "balance" in lowered
         or "用量上限" in msg
         or "token plan" in lowered
         or "购买积分" in msg
+        or "quota" in lowered
     ):
         return MINIMAX_BALANCE
     if "审核" in msg or "涉敏" in msg:
@@ -90,6 +93,21 @@ def classify_error_message(message: str, *, partial: bool = False) -> str:
 
 def classify_exception(exc: Exception, *, partial: bool = False) -> tuple[str, str]:
     """Return (error_code, error_message) for an exception."""
+    from app.integrations.vendors.errors import MusicProviderError
+
+    if isinstance(exc, MusicProviderError):
+        code = {
+            "auth": GENERATION_FAILED,
+            "balance": MINIMAX_BALANCE,
+            "params": VALIDATION,
+            "moderation": MINIMAX_CONTENT,
+            "rate_limit": MINIMAX_RATE_LIMIT,
+            "timeout": NETWORK_TIMEOUT,
+            "server": GENERATION_FAILED,
+        }.get(exc.kind, GENERATION_FAILED)
+        if partial:
+            code = PARTIAL_PLAYLIST
+        return code, exc.user_message
     msg = str(exc).strip() or "生成失败，请稍后重试"
     code = classify_error_message(msg, partial=partial)
     return code, msg

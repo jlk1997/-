@@ -11,7 +11,25 @@ from sqlalchemy.orm import Session
 
 from app.models.schemas import User, UserConsentLog
 
-LEGAL_ROOT = Path(__file__).resolve().parents[3] / "docs" / "legal" / "zh"
+LEGAL_DIR = Path(__file__).resolve().parents[3] / "docs" / "legal"
+DEFAULT_LOCALE = "zh"
+
+
+def normalize_legal_locale(locale: str | None) -> str:
+    if not locale:
+        return DEFAULT_LOCALE
+    raw = locale.strip().lower().replace("_", "-")
+    if raw.startswith("en"):
+        return "en"
+    return DEFAULT_LOCALE
+
+
+def _legal_root(locale: str = DEFAULT_LOCALE) -> Path:
+    path = LEGAL_DIR / locale
+    if path.exists():
+        return path
+    return LEGAL_DIR / DEFAULT_LOCALE
+
 
 CONSENT_FIELD_MAP = {
     "terms": ("terms_accepted_at", "terms_version"),
@@ -22,11 +40,20 @@ CONSENT_FIELD_MAP = {
 }
 
 
-def _load_manifest() -> dict:
-    manifest_path = LEGAL_ROOT / "manifest.json"
+def _load_manifest(locale: str = DEFAULT_LOCALE) -> dict:
+    manifest_path = _legal_root(locale) / "manifest.json"
     if not manifest_path.exists():
+        if locale != DEFAULT_LOCALE:
+            return _load_manifest(DEFAULT_LOCALE)
         raise HTTPException(status_code=500, detail="Legal manifest not found")
     return json.loads(manifest_path.read_text(encoding="utf-8"))
+
+
+def _find_doc(manifest: dict, slug: str) -> dict | None:
+    for doc in manifest.get("documents", []):
+        if doc["slug"] == slug:
+            return doc
+    return None
 
 
 def get_current_versions() -> dict[str, str]:
@@ -34,12 +61,38 @@ def get_current_versions() -> dict[str, str]:
     return {doc["slug"]: doc["version"] for doc in manifest.get("documents", [])}
 
 
+def _legal_contact_email() -> str:
+    from app.config import settings
+
+    return (settings.legal_contact_email or "").strip() or "privacy@vibe-sorcery.com"
+
+
+def _legal_contact_phone() -> str:
+    from app.config import settings
+
+    return (settings.legal_contact_phone or "").strip() or "400-000-0000"
+
+
+def apply_legal_contacts(text: str) -> str:
+    company = _legal_company_name()
+    email = _legal_contact_email()
+    phone = _legal_contact_phone()
+    out = text or ""
+    if company and company != "炼金音坊":
+        out = out.replace("炼金音坊", company)
+    if email and email != "privacy@vibe-sorcery.com":
+        out = out.replace("privacy@vibe-sorcery.com", email)
+    if phone and phone != "400-000-0000":
+        out = out.replace("400-000-0000", phone)
+    return out
+
+
 def get_legal_meta() -> dict:
     manifest = _load_manifest()
     return {
-        "company_name": manifest.get("company_name") or _legal_company_name(),
-        "contact_email": manifest.get("contact_email"),
-        "contact_phone": manifest.get("contact_phone"),
+        "company_name": _legal_company_name() or manifest.get("company_name"),
+        "contact_email": _legal_contact_email(),
+        "contact_phone": _legal_contact_phone(),
         "effective_date": manifest.get("effective_date"),
         "required_versions": get_required_versions(),
         "icp_number": _legal_icp_number(),
@@ -55,7 +108,7 @@ def _legal_icp_number() -> str:
 def _legal_company_name() -> str:
     from app.config import settings
 
-    return settings.legal_company_name or "炼金音坊"
+    return settings.legal_company_name or "比特音"
 
 
 def get_required_versions() -> dict[str, str]:
@@ -67,34 +120,50 @@ def get_required_versions() -> dict[str, str]:
     return versions
 
 
-def list_documents() -> list[dict]:
-    manifest = _load_manifest()
-    return [
-        {
-            "slug": doc["slug"],
-            "title": doc["title"],
-            "version": doc["version"],
-            "required_for": doc.get("required_for", []),
-        }
-        for doc in manifest.get("documents", [])
-    ]
-
-
-def get_document(slug: str) -> dict:
-    manifest = _load_manifest()
-    for doc in manifest.get("documents", []):
-        if doc["slug"] == slug:
-            file_path = LEGAL_ROOT / doc["file"]
-            if not file_path.exists():
-                raise HTTPException(status_code=404, detail="Document file not found")
-            return {
-                "slug": slug,
-                "title": doc["title"],
+def list_documents(locale: str | None = None) -> list[dict]:
+    loc = normalize_legal_locale(locale)
+    zh_manifest = _load_manifest(DEFAULT_LOCALE)
+    loc_manifest = _load_manifest(loc) if loc != DEFAULT_LOCALE else zh_manifest
+    loc_by_slug = {d["slug"]: d for d in loc_manifest.get("documents", [])}
+    documents: list[dict] = []
+    for doc in zh_manifest.get("documents", []):
+        loc_doc = loc_by_slug.get(doc["slug"], doc)
+        documents.append(
+            {
+                "slug": doc["slug"],
+                "title": loc_doc.get("title") or doc["title"],
                 "version": doc["version"],
-                "content": file_path.read_text(encoding="utf-8"),
-                "effective_date": manifest.get("effective_date"),
+                "required_for": doc.get("required_for", []),
             }
-    raise HTTPException(status_code=404, detail="Document not found")
+        )
+    return documents
+
+
+def get_document(slug: str, locale: str | None = None) -> dict:
+    loc = normalize_legal_locale(locale)
+    zh_manifest = _load_manifest(DEFAULT_LOCALE)
+    zh_doc = _find_doc(zh_manifest, slug)
+    if not zh_doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    loc_manifest = _load_manifest(loc) if loc != DEFAULT_LOCALE else zh_manifest
+    loc_doc = _find_doc(loc_manifest, slug) or zh_doc
+    file_path = _legal_root(loc) / loc_doc["file"]
+    resolved_locale = loc
+    if not file_path.exists():
+        file_path = _legal_root(DEFAULT_LOCALE) / zh_doc["file"]
+        resolved_locale = DEFAULT_LOCALE
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Document file not found")
+
+    return {
+        "slug": slug,
+        "title": loc_doc.get("title") or zh_doc["title"],
+        "version": zh_doc["version"],
+        "content": apply_legal_contacts(file_path.read_text(encoding="utf-8")),
+        "effective_date": loc_manifest.get("effective_date") or zh_manifest.get("effective_date"),
+        "locale": resolved_locale,
+    }
 
 
 def _log_consent(

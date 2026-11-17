@@ -36,6 +36,8 @@ WEEKLY_TASK_POOL: list[dict] = [
     {"key": "weekly_remix_1", "label": "本周完成 1 次 Remix", "credits": 3},
     {"key": "weekly_publish_1", "label": "本周发布 1 首作品", "credits": 3},
     {"key": "weekly_journey_1", "label": "本周完成 1 次心情旅程", "credits": 2},
+    {"key": "weekly_radio_station", "label": "本周听完 2 个情绪电台", "credits": 2},
+    {"key": "weekly_clip_drop", "label": "本周回填一条短视频切片", "credits": 2},
 ]
 
 
@@ -265,8 +267,36 @@ def on_engagement_event(
     if event in ("playlist_listen_complete", "journey_completed"):
         return complete_weekly_task(db, user_id, "weekly_journey_1")
     if event == "listen_complete_checkin":
-        return maybe_complete_weekly_listen(db, user_id)
+        maybe_complete_weekly_listen(db, user_id)
+        return maybe_complete_weekly_stations(db, user_id)
+    if event == "clip_drop":
+        return complete_weekly_task(db, user_id, "weekly_clip_drop")
     return None
+
+
+def count_weekly_radio_stations(db: Session, user_id: uuid.UUID) -> int:
+    from app.models.schemas import ListenCheckin
+
+    since = datetime.utcnow() - timedelta(days=datetime.utcnow().weekday() + 1)
+    rows = (
+        db.query(ListenCheckin)
+        .filter(ListenCheckin.user_id == user_id, ListenCheckin.created_at >= since)
+        .all()
+    )
+    stations: set[str] = set()
+    for row in rows:
+        if getattr(row, "station", None):
+            stations.add(str(row.station))
+        for tag in row.mood_tags or []:
+            if str(tag).startswith("radio:"):
+                stations.add(str(tag).split(":", 1)[-1])
+    return len(stations)
+
+
+def maybe_complete_weekly_stations(db: Session, user_id: uuid.UUID) -> dict | None:
+    if count_weekly_radio_stations(db, user_id) < 2:
+        return None
+    return complete_weekly_task(db, user_id, "weekly_radio_station")
 
 
 def get_user_progress(db: Session, user: User) -> dict:

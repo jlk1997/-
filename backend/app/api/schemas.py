@@ -3,8 +3,9 @@ from pydantic import BaseModel, EmailStr, Field
 
 class UserRegister(BaseModel):
     email: EmailStr
-    username: str = Field(min_length=3, max_length=100)
+    username: str | None = Field(default=None, max_length=100)
     password: str = Field(min_length=6)
+    otp: str = Field(min_length=6, max_length=8)
     display_name: str | None = None
     invite_code: str | None = Field(default=None, max_length=32)
     referral_code: str | None = Field(default=None, max_length=12)
@@ -15,6 +16,38 @@ class UserRegister(BaseModel):
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
+
+
+class EmailOtpRequest(BaseModel):
+    email: EmailStr
+    purpose: str = Field(min_length=3, max_length=16)
+
+
+class EmailOtpLogin(BaseModel):
+    email: EmailStr
+    otp: str = Field(min_length=6, max_length=8)
+
+
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+    otp: str = Field(min_length=6, max_length=8)
+    password: str = Field(min_length=6)
+
+
+class ChangeEmailRequest(BaseModel):
+    new_email: EmailStr
+    new_otp: str = Field(min_length=6, max_length=8)
+    current_otp: str | None = Field(default=None, max_length=8)
+
+
+class VerifyEmailRequest(BaseModel):
+    otp: str = Field(min_length=6, max_length=8)
+
+
+class ChangePasswordRequest(BaseModel):
+    password: str = Field(min_length=6)
+    current_password: str | None = None
+    otp: str | None = Field(default=None, max_length=8)
 
 
 class TokenResponse(BaseModel):
@@ -34,6 +67,8 @@ class UserResponse(BaseModel):
     is_admin: bool = False
     deletion_scheduled_at: str | None = None
     consent_missing: list[str] = []
+    email_verified: bool = False
+    email_bound: bool = True
 
     class Config:
         from_attributes = True
@@ -46,6 +81,7 @@ class PublicProfileResponse(BaseModel):
     avatar_url: str | None = None
     stats: dict
     is_following: bool | None = None
+    showcase: dict | None = None
 
     class Config:
         from_attributes = True
@@ -56,6 +92,8 @@ class EmotionAnalyzeResponse(BaseModel):
     genres: list[str]
     arousal: float | None = None
     valence: float | None = None
+    degraded: bool = False
+    reason: str | None = None
 
 
 class Waypoint(BaseModel):
@@ -102,6 +140,9 @@ class MusicCreativeSpecSchema(BaseModel):
     style_tags: str = ""
     journey_hint: str = ""
     custom_prompt_override: str = ""
+    vocal_gender: str = ""
+    vocal_style: str = ""
+    language: str = ""
 
 
 class PlaylistGenerateRequest(BaseModel):
@@ -131,7 +172,7 @@ class SingleGenerateRequest(BaseModel):
     reference: dict | None = None
     instrumental: bool = True
     title: str | None = None
-    lyrics: str | None = Field(default=None, max_length=3500)
+    lyrics: str | None = Field(default=None, max_length=8000)
     style_tags: str | None = Field(default=None, max_length=2000)
     song_title: str | None = Field(default=None, max_length=120)
     creative_spec: MusicCreativeSpecSchema | None = None
@@ -142,6 +183,12 @@ class SingleGenerateRequest(BaseModel):
     genres: list[str] = []
     seed: int | None = Field(default=None, ge=0, le=999_999)
     preview_pick_count: int = Field(default=1, ge=0, le=1)
+    mode: str | None = None
+    freedom: str | None = None
+    takes: int | None = Field(default=None, ge=1, le=2)
+    quality: str | None = None
+    quick: bool = False
+    vocal: dict | None = None
 
 
 class RemixRequest(BaseModel):
@@ -196,10 +243,22 @@ class WorkResponse(BaseModel):
     license: str = "allow_remix"
     post_process_status: dict | None = None
     c2pa_verified: bool = False
+    c2pa_state: str = "none"
     version: int = 1
     is_ai_generated: bool = True
     lyrics: str | None = None
     lyrics_timeline: list[dict] | None = None
+    release_status: str | None = None
+    isrc: str | None = None
+    is_owner: bool = False
+    live_stores: int = 0
+    commercial: bool = False
+    artist_name: str | None = None
+    owner_username: str | None = None
+    community_post_id: str | None = None
+    community_caption: str | None = None
+    from_workbench: bool = False
+    superseded_by_work_id: str | None = None
 
 
 class WorkUpdateRequest(BaseModel):
@@ -217,6 +276,7 @@ class ProvenanceResponse(BaseModel):
     lineage: list[dict]
     pipeline_version: str
     verification_url: str
+    human_edits: list[dict] = []
 
 
 class PostCreate(BaseModel):

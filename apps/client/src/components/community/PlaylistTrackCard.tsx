@@ -41,7 +41,7 @@ export function PlaylistTrackCard({
           <Text className="playlist-track-card__num">{index + 1}</Text>
         </View>
         {coverUrl ? (
-          <Image className="playlist-track-card__cover" src={coverUrl} mode="aspectFill" />
+          <Image className="playlist-track-card__cover" src={coverUrl} mode="aspectFill" lazyLoad />
         ) : (
           <View className="playlist-track-card__cover playlist-track-card__cover--fallback">
             <Icon name="music" accent />

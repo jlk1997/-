@@ -38,16 +38,14 @@
   margin-bottom: $space-lg;
   padding: $space-lg $space-md;
   border-radius: $radius-lg;
-  background: linear-gradient(165deg, rgba(22, 22, 34, 0.94) 0%, rgba(14, 14, 22, 0.98) 100%);
-  border: 1rpx solid rgba(212, 175, 106, 0.18);
-  box-shadow: $shadow-sm, inset 0 1rpx 0 rgba(255, 255, 255, 0.04);
+  background: $obsidian;
+  border: 1rpx solid $border;
 }
 
 .settings-profile-card__avatar-ring {
   padding: 6rpx;
   border-radius: $radius-pill;
-  background: linear-gradient(135deg, $gold, rgba(212, 175, 106, 0.35));
-  box-shadow: $shadow-gold;
+  background: $border;
 }
 
 .settings-profile-card__body {
@@ -85,7 +83,7 @@
 
 .settings-ledger {
   background: $obsidian;
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border-subtle;
   border-radius: $radius-lg;
   padding: 0 $space-md;
   margin-bottom: $space-md;
@@ -94,7 +92,7 @@
 .settings-nav {
   margin: $space-lg 0;
   background: $obsidian;
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border-subtle;
   border-radius: $radius-lg;
   overflow: hidden;
 }
@@ -113,7 +111,7 @@
   margin: $space-2xs 0;
   padding: $space-md;
   background: $obsidian;
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border-subtle;
   border-radius: $radius-md;
 }
 

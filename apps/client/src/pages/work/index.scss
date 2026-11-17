@@ -51,14 +51,14 @@
   height: 100%;
   border-radius: $radius-lg;
   background: $slate-veil;
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border-subtle;
   box-shadow: $shadow-glass;
 
   &--fallback {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: linear-gradient(135deg, $gold-muted, rgba(5, 5, 8, 0.95));
+    background: $slate-veil;
   }
 }
 
@@ -136,7 +136,7 @@
   align-items: center;
   gap: $space-xs;
   padding: $space-sm 0;
-  border-bottom: 1rpx solid $border-ritual;
+  border-bottom: 1rpx solid $border-subtle;
 }
 
 .work-detail__deriv-title {
@@ -166,7 +166,7 @@
   padding: $space-sm;
   border-radius: $radius-md;
   background: rgba(255, 255, 255, 0.04);
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border-subtle;
 }
 
 .work-detail__tips-title {

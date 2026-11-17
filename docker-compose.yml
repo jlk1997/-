@@ -53,7 +53,7 @@ services:
       - .env
     environment:
       RUN_ALEMBIC_ON_STARTUP: "false"
-      DATABASE_URL: postgresql://vibe:vibe@postgres:5432/vibe_sorcery
+      DATABASE_URL: postgresql+psycopg2://vibe:vibe@postgres:5432/vibe_sorcery
       REDIS_URL: redis://redis:6379/0
       RATE_LIMIT_FAIL_CLOSED: "false"
       CELERY_BROKER_URL: redis://redis:6379/1
@@ -77,16 +77,16 @@ services:
 
   worker:
     <<: *backend-image
-    command: sh -c "alembic upgrade head && celery -A app.celery_app.celery_app worker --loglevel=info --pool=$${CELERY_POOL:-prefork} --concurrency=$${CELERY_CONCURRENCY:-2} -Q celery,priority"
+    command: sh -c "alembic upgrade head && celery -A app.celery_app.celery_app worker --loglevel=info --pool=$${CELERY_POOL:-prefork} --concurrency=$${CELERY_CONCURRENCY:-4} -Q celery,priority"
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql://vibe:vibe@postgres:5432/vibe_sorcery
+      DATABASE_URL: postgresql+psycopg2://vibe:vibe@postgres:5432/vibe_sorcery
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND: redis://redis:6379/2
       CELERY_POOL: prefork
-      CELERY_CONCURRENCY: "2"
+      CELERY_CONCURRENCY: "4"
       S3_ENDPOINT: http://minio:9000
       S3_PUBLIC_ENDPOINT: http://localhost:9000
       MODELS_DIR: /app/models
@@ -109,7 +109,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql://vibe:vibe@postgres:5432/vibe_sorcery
+      DATABASE_URL: postgresql+psycopg2://vibe:vibe@postgres:5432/vibe_sorcery
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND: redis://redis:6379/2
@@ -130,13 +130,97 @@ services:
       minio:
         condition: service_started
 
+  # Stem queue. This image falls back to a labeled preview until you build the Demucs image
+  # (docker compose -f docker-compose.yml -f docker-compose.stems.yml build worker-stems).
+  worker-stems:
+    <<: *backend-image
+    command: sh -c "nice -n 10 celery -A app.celery_app.celery_app worker --loglevel=info --pool=prefork --concurrency=1 -Q stems"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg2://vibe:vibe@postgres:5432/vibe_sorcery
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      S3_ENDPOINT: http://minio:9000
+      S3_PUBLIC_ENDPOINT: http://localhost:9000
+      MODELS_DIR: /app/models
+      TORCH_HOME: /app/models/torch
+    volumes:
+      - ./backend:/app/backend
+      - ./models:/app/models
+    mem_limit: 4g
+    cpus: 2
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # 分发对账 / 官方 CSV 消化 / 月结。Beat 会往这些队列丢任务，没有消费者就会堆在 Redis。
+  worker-dist:
+    <<: *backend-image
+    command: sh -c "celery -A app.celery_app.celery_app worker --loglevel=info --pool=$${CELERY_POOL:-prefork} --concurrency=$${CELERY_DIST_CONCURRENCY:-2} -Q distribution,analytics,settlement"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg2://vibe:vibe@postgres:5432/vibe_sorcery
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      CELERY_POOL: prefork
+      CELERY_DIST_CONCURRENCY: "2"
+      S3_ENDPOINT: http://minio:9000
+      S3_PUBLIC_ENDPOINT: http://localhost:9000
+      MODELS_DIR: /app/models
+    volumes:
+      - ./backend:/app/backend
+      - ./src:/app/src
+      - ./models:/app/models
+      - ./packages:/app/packages
+      - ./apps/browser-farm:/app/apps/browser-farm
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+
+  browser-farm:
+    <<: *backend-image
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+        INSTALL_PLAYWRIGHT: ${INSTALL_PLAYWRIGHT:-false}
+    command: sh -c "python /app/apps/browser-farm/worker.py --loop --interval 20"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg2://vibe:vibe@postgres:5432/vibe_sorcery
+      REDIS_URL: redis://redis:6379/0
+      PYTHONPATH: /app:/app/backend
+      # farm_can_navigate() is still false until Playwright is in this image.
+      VIBE_FARM_NAVIGATE: ${VIBE_FARM_NAVIGATE:-0}
+    volumes:
+      - ./backend:/app/backend
+      - ./packages:/app/packages
+      - ./apps/browser-farm:/app/apps/browser-farm
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   beat:
     <<: *backend-image
     command: sh -c "alembic upgrade head && celery -A app.celery_app.celery_app beat --loglevel=info"
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql://vibe:vibe@postgres:5432/vibe_sorcery
+      DATABASE_URL: postgresql+psycopg2://vibe:vibe@postgres:5432/vibe_sorcery
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND: redis://redis:6379/2
     volumes:

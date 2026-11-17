@@ -5,10 +5,22 @@ export type Work = {
   hls_url?: string;
   cover_url?: string;
   moods?: string[];
+  visibility?: string;
+  version?: number;
   c2pa_verified?: boolean;
+  post_process_status?: Record<string, unknown>;
   parent_work_id?: string;
   parent_work_title?: string;
   is_ai_generated?: boolean;
+  release_status?: string;
+  isrc?: string;
+  is_owner?: boolean;
+  live_stores?: number;
+  commercial?: boolean;
+  artist_name?: string;
+  owner_username?: string;
+  community_post_id?: string | null;
+  community_caption?: string | null;
 };
 
 export type FeedPost = {

@@ -1,0 +1,143 @@
+# Server overlay: bind published ports to loopback, production process model.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.deploy.yml up -d --build
+
+services:
+  postgres:
+    restart: unless-stopped
+    ports: !override []
+    environment:
+      POSTGRES_USER: vibe
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: vibe_sorcery
+
+  redis:
+    restart: unless-stopped
+    ports: !override []
+
+  minio:
+    restart: unless-stopped
+    ports: !override
+      - "127.0.0.1:19000:9000"
+      - "127.0.0.1:19001:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+
+  api:
+    restart: unless-stopped
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2"
+    volumes: !override
+      - ${MODELS_HOST_DIR:-/opt/bittune/models}:/app/models:ro
+    ports: !override
+      - "127.0.0.1:8000:8000"
+    environment:
+      RUN_ALEMBIC_ON_STARTUP: "false"
+      DATABASE_URL: postgresql+psycopg2://vibe:${POSTGRES_PASSWORD}@postgres:5432/vibe_sorcery
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      S3_ENDPOINT: http://minio:9000
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://127.0.0.1}
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      RATE_LIMIT_FAIL_CLOSED: "true"
+      DEBUG: "false"
+      MODELS_DIR: /app/models
+
+  worker:
+    restart: unless-stopped
+    volumes: !override
+      - ${MODELS_HOST_DIR:-/opt/bittune/models}:/app/models:ro
+    environment:
+      DATABASE_URL: postgresql+psycopg2://vibe:${POSTGRES_PASSWORD}@postgres:5432/vibe_sorcery
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      S3_ENDPOINT: http://minio:9000
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://127.0.0.1}
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      CELERY_POOL: prefork
+      CELERY_CONCURRENCY: "4"
+      MODELS_DIR: /app/models
+
+  worker-stems:
+    restart: unless-stopped
+    volumes: !override
+      - ${MODELS_HOST_DIR:-/opt/bittune/models}:/app/models
+    environment:
+      DATABASE_URL: postgresql+psycopg2://vibe:${POSTGRES_PASSWORD}@postgres:5432/vibe_sorcery
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      S3_ENDPOINT: http://minio:9000
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://127.0.0.1}
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      MODELS_DIR: /app/models
+      TORCH_HOME: /app/models/torch
+
+  worker-post:
+    restart: unless-stopped
+    volumes: !override
+      - ${MODELS_HOST_DIR:-/opt/bittune/models}:/app/models:ro
+    environment:
+      DATABASE_URL: postgresql+psycopg2://vibe:${POSTGRES_PASSWORD}@postgres:5432/vibe_sorcery
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      S3_ENDPOINT: http://minio:9000
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://127.0.0.1}
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      CELERY_POOL: prefork
+      CELERY_POST_CONCURRENCY: "1"
+      MODELS_DIR: /app/models
+
+  worker-dist:
+    restart: unless-stopped
+    volumes: !override []
+    environment:
+      DATABASE_URL: postgresql+psycopg2://vibe:${POSTGRES_PASSWORD}@postgres:5432/vibe_sorcery
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      S3_ENDPOINT: http://minio:9000
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://127.0.0.1}
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      CELERY_POOL: prefork
+      CELERY_DIST_CONCURRENCY: "1"
+
+  browser-farm:
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+        INSTALL_PLAYWRIGHT: ${INSTALL_PLAYWRIGHT:-false}
+    volumes: !override []
+    environment:
+      DATABASE_URL: postgresql+psycopg2://vibe:${POSTGRES_PASSWORD}@postgres:5432/vibe_sorcery
+      REDIS_URL: redis://redis:6379/0
+      PYTHONPATH: /app:/app/backend
+      VIBE_FARM_NAVIGATE: ${VIBE_FARM_NAVIGATE:-0}
+
+  beat:
+    restart: unless-stopped
+    volumes: !override []
+    environment:
+      DATABASE_URL: postgresql+psycopg2://vibe:${POSTGRES_PASSWORD}@postgres:5432/vibe_sorcery
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+
+  frontend:
+    restart: unless-stopped
+    ports: !override
+      - "127.0.0.1:3000:80"
+    build:
+      context: .
+      dockerfile: apps/client/Dockerfile
+      args:
+        TARO_APP_API_URL: /api/v1

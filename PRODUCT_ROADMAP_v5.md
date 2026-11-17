@@ -1,8 +1,8 @@
 # Vibe Sorcery 产品路线图 v5.0
 
-> **定位**：情绪驱动的 AI 音乐创作平台 —— 从「能生成」到「能定制、能传播、能溯源、能运营」的完整生态。  
+> **定位**：比特音是开放的创作者操作系统 —— 情绪出歌、轻工作室精编、多店发行、授权收获、按店按歌一本账。对照汽水「妙响」：不抢抖音流量，用全球收获 + 非独家权利赢。  
 > **前提**：v4.0 已完成 Generation Control Stack（航点 + BPM/调性/种子/Remix/Cover + Studio UI）。  
-> **原则**：不扩 MiniMax 未文档化字段；自由度通过 prompt 工程 + 官方参数 + 平台层抽象实现。
+> **原则**：不扩 MiniMax 未文档化字段；分发与能出片的精编进入内核；收获只走授权会话。社交仍做，但不压过精编/分发。
 
 ---
 
@@ -18,34 +18,38 @@
 | **信任** | Provenance 谱系、SHA256 校验、.vibe 导出 |
 | **运营** | Admin 统计/用量/Flags/举报；挑战活动后端 |
 
-### 1.2 核心缺口（v5 要补）
+### 1.2 诚实对照：已闭环 / 停住 / 等密钥
 
-> **战略补充**：种子音频不再作为默认路径 —— 见 [PRODUCT_INTENT_FIRST_ARCHITECTURE.md](PRODUCT_INTENT_FIRST_ARCHITECTURE.md)（意图优先 · 零上传门槛）。
+> 不要再对外卖已关掉的缺口。关注 / 评论 / 挑战 / 榜单 / 搜索 / 同款墙 / `prompt_journey` 无 seed 出歌，今天都能走完。缺的是密钥、证书和人审，不是再开入口。
 
 ```mermaid
 flowchart TB
-  subgraph gap [主要断层]
-    A[社交图谱 API 有 UI 无]
-    B[收藏/挑战/个人主页 半完成]
-    C[推荐仅 Feed 隐式排序]
-    D[定制「模板化」不足]
-    E[Playlist 仍强制 seed 上传]
-    F[移动端/小程序 严重滞后]
-    G[C2PA/链上 sidecar 非嵌入]
-    H[多租户 tenant_id 未生效]
+  subgraph closed [今天能走完]
+    A[出歌扣积分]
+    B[发到发现]
+    C[电台打卡 display_only]
+    D[搜索 / 榜单 / 挑战]
+  end
+  subgraph parked [必须停住]
+    E[无店页回执不得 live]
+    F[结算草稿等人审]
+    G[KYC 人工]
+    H[提现后财务回单]
+  end
+  subgraph keys [等密钥或证书]
+    I[DistroKid / TuneCore]
+    J[Playwright 农场导航]
+    K[微信虚拟支付道具]
+    L[二进制 C2PA / 真链上]
   end
 ```
 
-| 断层 | 用户感知 | 优先级 |
-|------|----------|--------|
-| **Playlist 必须 seed** | 「没歌不能玩」最大流失 | **P0** |
-| 无 Style Preset 一键 | 参数太专业 | P0 |
-| 无创作者主页 / Follow | 无法建立关系 | P0 |
-| 收藏无浏览页 | 喜欢无法沉淀 | P0 |
-| 挑战参与 UX 分散 | 活动难形成话题 | P1 |
-| Remix 链不可视 | 生态传播缺少叙事 | P1 |
-| 移动端能力 < Web 30% | 流量入口缺失 | P1 |
-| 租户/SaaS 未隔离 | B 端无法交付 | P2 |
+| 状态 | 事实 | 不许假装 |
+|------|------|----------|
+| **已闭环** | 生成、曲库、发到发现、搜索、榜单、挑战、同款墙、`prompt_journey` 无 seed | 不要再写「Playlist 必须 seed / 搜索未做」 |
+| **停住** | 质检 → 完成带勾许可/店 → 连接器填表 → 店页回执 → CSV/收割 → 运营确认 → 申请提现 → `paid_manual` | 无回执不得 live；未签许可不得 settle；周五不是自动打款日；Spotify 默认只听数据 |
+| **等密钥** | DistroKid、农场导航、KYC 厂商、虚拟支付道具、Demucs 镜像、HTTPS 证书、真 C2PA | 徽章不得写已认证 / 已上链 |
+| **规格里有、不是上线闭环** | 嵌入播放器、原生连续包月、多租户 | 文档不要当已上线卖 |
 
 ---
 
@@ -330,7 +334,9 @@ Remix API 校验许可；provenance 记录 `license_snapshot`。
 
 - iframe 播放器 + 「Made with Vibe Sorcery」
 - 导出到：下载链接、HLS CDN URL、`.vibe` 文件
-- 未来：Spotify/Apple Music 分发对接（非 MiniMax 范畴，独立集成）
+- 多店发行已进内核：完成带按填表 / 只听数据 / 运营队列分流；默认只勾能填表的店，未配对 Spotify 不自动勾
+- DistroKid / TuneCore / 国内厂牌 webhook 为合作方主路；DOM 收获只做无 API 的店
+- 北极星：**每创作者每月结算到的店数 × 账本可信度**（不对标抖音 DAU）
 
 ---
 
@@ -379,16 +385,16 @@ gantt
 ```
 
 ### Phase 5（Week 1–3）— 生态基座 + 风格包
-- [ ] `/u/[username]` 主页 + Follow UI
+- [x] 创作者主页 + Follow UI（`pages/user` + FollowButton；不是独立 `/u/` 路由）
 - [ ] `/collections` 收藏浏览
-- [ ] `StylePreset` 后端 + Create 风格包 UI
-- [ ] Discover 排序切换
+- [x] `StylePreset` 后端 + Create 风格包 UI
+- [x] Discover 排序切换
 
 ### Phase 6（Week 4–6）— 定制深化
 - [ ] 编曲结构模板 → 自动航点
-- [ ] Reference Track 模式
-- [ ] Variation Lab（多 seed 网格）
-- [ ] Challenges 页内参赛 + Admin 创建挑战
+- [x] Reference Track 选择器（权利检查后 embedding 仍未做）
+- [x] Variation Lab 组件（多 seed 网格深度仍可加，不要标「未做」）
+- [x] Challenges 页内参赛 + Admin 创建挑战
 
 ### Phase 7（Week 7–9）— 生态闭环
 - [ ] Remix 衍生树可视化
@@ -401,6 +407,51 @@ gantt
 - [ ] 用户额度与生成 Gate
 - [ ] Open API Key + job webhook
 - [ ] 通知（生成完成 / 互动）
+
+### Phase H0（约 8 周）— 手感像成品
+- [x] 两版并排听 → 选主版本 → 切片 / 电台 / 确认一次发行
+- [x] 发行向导 QC 通过走 `quickRelease`
+- [x] 钱一览按店 / 按歌 / 按切片；席位失败文案「打开已登录的店后台」
+- [x] 小程序远程登录 ack 后必 `runtime-kick`；连接器只在 H5/桌面
+
+### Phase H1（约一季度）— 精编不输妙响
+- [x] 可插拔分轨（审核级 Demucs；ffmpeg 频段 = preview ≠ review）+ 变速变调 + 一键母带
+- [x] 锁词翻唱、续写 15–30 秒写入谱系、轻工作室撤销
+- [x] MixGraph 美化台 / 调音台：会话内续写、换桥、同款写进节点，打成新立体声 Work；额度账不法币
+- [x] 工作台接进发行主电路：Work B 带 `work_ids` / 切片窗 / 护照精编；待发行优先母带；市场套包进会话
+- [x] 工作台接进通知 / 助手 / 轻编续写：完成通知回会话；`open_beautify` ≠ 风格包；失败不改 last_result
+- [x] 发行闸优先 Work B：向导 / 一键代发 / 本周建议不拿被取代的原曲上架；曲库标美化母带
+- [x] 本周掉落 / 电台试投 / 听感曲库优先或标明 Work B；个人中心任务回美化台；调音台旋钮覆盖官方包节点；Sync / 切片回执改投未上架母带
+- [x] 参考轨 embedding 仅在权利检查后写入（不做「像某首热歌」）
+- [x] 完成带：选版 / 工作台 / 创作者台共用一张卡；默认只勾能填表的店；无店页回执不得 live；用户席位收获须已签分发许可
+- [x] 一键上店入口统一进创作者台完成带；向导只留给 QC / 元数据；小程序复制创作者台链接
+- [x] 听感距离再炼：第一版偏移跨过「太近」；仍太近时质检露出再炼，工作台用更大偏移
+
+### Phase H4 — 双控制台 2.0（MixGraph v2）
+- [x] MixGraph v2：clips / regions / origin；渲染补 pan / solo / fade / trim；套包不踩用户剪辑
+- [x] 电脑专业台：波形时间线 + 片段精编 + 三步教练 + 发布包预检（不含 clips）
+- [x] 手机简易台：需求横滑 / 切头尾 / 四推子；出歌完成页建议美化 + 3 秒预听
+- [x] 效果包飞轮：need_tags、分轨包、PackDemand 定制、创作者 OS 包收入 / 已发行数
+- [x] 时间线选区再生成落成 take clip；同区多 take 选用后 bounce；失败不改 last_result_work_id
+- [x] 会话露出 `waveform_url`；官方包可预烘焙 6 秒预听；Work B 回写 `applied_pack_id`
+- [x] 上架包禁止外部 IR/采样；创作页商店只进配方货架；轻编变速变调映射进美化台；时间线内再生成 / H5 波形尺 / 未准备不甩空轨
+
+### Phase H2（约两季度）— 收获护城河
+- [x] 每店版本化抽取器 + HTML 夹具 CI
+- [x] 合作方 webhook 字段规范化；官方 CSV 优先于 DOM
+- [x] 农场 drain 指标 + `farm_health`；低置信度禁止自动确认
+- [x] 用户侧自动化：回到创作者台叫醒扩展继续填表；未发完会再问一次；农场导航关着时钱一览只叫醒扩展抄账，不写成已到账
+- [x] 连接器在线且店在等登录时，完成带自动打开该店一次；有店页回执后可在卡上叫醒扩展抄账
+- [x] 填表中断且扩展在线时只叫醒一次接着填，不重新确认；已有结算草稿时钱一览去看草稿，不再叫醒抄账
+- [x] 店页回执刚记下、且席位已授权抄账时马上排队去抄，不用再等变旧；扩展在这台浏览器上时完成带立刻叫醒一次
+- [x] 网易云 / QQ → Spotify / YouTube → 短视频会话 → Apple 的覆盖顺序（目录 sort + Suggested Ship）
+
+### Phase H3（第二年）— 妙响复制不了的生态
+- [x] 电台试投作为揭晓默认下一步，发行成功后自动开试投
+- [x] 护照权利证书（非独家）+ 谱系互链
+- [x] Sync Desk / 嵌入按租户隔离
+- [x] 厂牌席位池 warmup 接线（connecting 诚实 stamp，不发明金额）
+- [x] 发现升级为情绪相似 + 热度：登录按气质相近再叠完播；未登录按完播热度，芯片不假装口味重叠
 
 ---
 
@@ -429,6 +480,9 @@ gantt
 | 7 日留存 | > 20% |
 | 平均 Studio 参数使用率（非默认 preset） | > 50% |
 | API P95 生成 job 完成时间 | < 3min（6 step playlist） |
+| 确认发行 → 至少 1 家店 live 中位时间 | 持续下降；`ops_queue` 占比下降 |
+| 授权席位 7 日活跃 / 收获行匹配率 | 可运营，而非 demo |
+| 每创作者每月结算到的店数 × 账本可信度 | **北极星（不对标抖音 DAU）** |
 
 ---
 
@@ -453,7 +507,7 @@ gantt
 
 ---
 
-**下一步建议（若继续开发）**：**Phase 5A Intent-First**（IF-01~07：无 seed Playlist + Studio 重组）→ Phase 5B 生态（主页/收藏/Preset UI）。
+**下一步建议（若继续开发）**：创作者 OS 的下一杠杆是合作方真密钥覆盖，不是再开主页/第五 Tab/多轨上架。席位 warmup 已诚实 stamp；参考轨 embedding 已过权利闸；Sync Desk 买方可见非独家权利证。
 
 ---
 
@@ -506,3 +560,7 @@ v5 路线图侧重战略与排期；**每个功能的详细 UX、API、数据模
 | v5.0 | [PRODUCT_IMPLEMENTATION_BLUEPRINT.md](PRODUCT_IMPLEMENTATION_BLUEPRINT.md) | 📋 权限/状态机/81项清单/迁移 |
 | v5.0 | [PRODUCT_UX_DESIGN_SYSTEM.md](PRODUCT_UX_DESIGN_SYSTEM.md) | 📋 完整 UX：IA、Studio 线框、组件、状态、a11y |
 | v5.0 | [PRODUCT_INTENT_FIRST_ARCHITECTURE.md](PRODUCT_INTENT_FIRST_ARCHITECTURE.md) | 📋 **意图优先**：去 seed 核心化、prompt_journey、Studio 重组 |
+
+## 14. 运营落地（2026-10）
+
+自动化继续做，但是加速器。上线时效先靠人工。前提、字段清单和角色见 [docs/landing/PHASE0.md](docs/landing/PHASE0.md)。运营网页在 `apps/ops-console`。发行资料按渠道必填项在 `backend/app/services/distribution/channel_fields.py`，核对完成前不拦住提交。用户自己账号上的 10% 记在许可上，不从店铺账户扣款。提现仍然只由财务标已付。

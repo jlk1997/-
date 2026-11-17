@@ -20,7 +20,7 @@ const SIZE_PX = { sm: 16, md: 20, lg: 24, xl: 32 } as const;
 export function Icon({ name, size = "md", accent, muted, tone = "light", className }: Props) {
   const px = SIZE_PX[size];
   const color = accent
-    ? "#d4af6a"
+    ? "#f2f2f7"
     : muted
       ? "rgba(255,255,255,0.4)"
       : tone === "dark"

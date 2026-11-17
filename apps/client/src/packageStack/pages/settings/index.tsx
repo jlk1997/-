@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { View, Text } from "@tarojs/components";
-import Taro, { useRouter } from "@tarojs/taro";
+import Taro, { useRouter, useShareAppMessage } from "@tarojs/taro";
 import { useLocale } from "@vibe-sorcery/i18n";
 import { PageShell, SectionLabel } from "../../../components/PageShell";
-import { Button, ChipGroup, Input, Tag, TextArea, AuthBanner, ListRow, Card, NavTile, CreditLedgerRow, Avatar, UsageMeter } from "../../../components/ui";
+import { Button, ChipGroup, Input, Tag, TextArea, AuthBanner, ListRow, Card, NavTile, CreditLedgerRow, Avatar, UsageMeter, Collapsible } from "../../../components/ui";
+import { toastFromError } from "../../../components/ui/toast";
+import { AccountSecurityCard } from "../../../components/account/AccountSecurityCard";
+import { confirmAction, isPlaceholderEmail } from "../../../utils/confirmAction";
 import { EngagementPanel } from "../../../components/engagement/EngagementPanel";
 import { vibeApi } from "../../../services/api";
 import { API_BASE } from "@vibe-sorcery/api-client";
@@ -14,12 +17,20 @@ import { LegalFooter } from "../../../components/legal/LegalFooter";
 import { LEGAL_ROUTES } from "../../../utils/legal";
 import { ConsentCheckbox } from "../../../components/legal/ConsentCheckbox";
 import { enableAllOnboarding } from "../../../utils/onboarding";
-import { STACK_PAGE_ROUTES, stackPage } from "../../../constants/routes";
+import { CREATOR_PAGE_ROUTES, STACK_PAGE_ROUTES, openCreatorDesk, stackPage } from "../../../constants/routes";
+import { WeappH5Bridge } from "../../../packageCreator/WeappH5Bridge";
+import { referralSharePath, myReferralCode } from "../../../platform/referral";
+import { absoluteShareUrl } from "../../../platform/share";
 import "./index.scss";
 
 export default function SettingsPage() {
   const router = useRouter();
   const { copy, locale, setLocale } = useLocale();
+
+  useShareAppMessage(() => ({
+    title: copy.progressUi.referralTitle,
+    path: referralSharePath(myReferralCode()),
+  }));
   const s = copy.settingsUi;
   const w = copy.webhooks;
   const l = copy.legalUi;
@@ -31,6 +42,7 @@ export default function SettingsPage() {
   const [username, setUsername] = useState("");
   const [moodTags, setMoodTags] = useState<string[]>([]);
   const [genreTags, setGenreTags] = useState<string[]>([]);
+  const [notifyPrefs, setNotifyPrefs] = useState({ in_app: true, wechat: true, email: true, recall: true });
   const [availableMoods, setAvailableMoods] = useState<string[]>([]);
   const [availableGenres, setAvailableGenres] = useState<string[]>([]);
   const [webhooks, setWebhooks] = useState<Array<{ id: string; url: string; name?: string }>>([]);
@@ -57,13 +69,15 @@ export default function SettingsPage() {
     Array<{ id: string; order_id: string; title: string; status: string; created_at?: string }>
   >([]);
   const [reducedMotion, setReducedMotion] = useState(() => getItem("settings:reducedMotion") === "1");
+  const [autoRelease, setAutoRelease] = useState(false);
+  const [autoReleaseBusy, setAutoReleaseBusy] = useState(false);
+  const [accountEmail, setAccountEmail] = useState("");
+  const [accountBound, setAccountBound] = useState(false);
+  const [accountVerified, setAccountVerified] = useState(false);
   const isH5 = process.env.TARO_ENV === "h5";
   const sup = copy.supportUi;
   const openApiDocsUrl = API_BASE.replace(/\/api\/v1\/?$/, "") + "/openapi.json";
-  const embedBaseUrl =
-    typeof window !== "undefined" && window.location?.origin
-      ? `${window.location.origin}/packageOps/pages/embed/index`
-      : "https://your-domain/packageOps/pages/embed/index";
+  const embedBaseUrl = absoluteShareUrl("/packageOps/pages/embed/index");
   const embedSnippet = `<iframe src="${embedBaseUrl}?workId=WORK_ID" width="320" height="120" frameborder="0" allow="autoplay"></iframe>`;
 
   function openApiDocs() {
@@ -99,9 +113,16 @@ export default function SettingsPage() {
   }
 
   useEffect(() => {
-    if (router.params.section !== "credits" || typeof document === "undefined") return;
+    if (typeof document === "undefined") return;
+    const target =
+      router.params.section === "credits"
+        ? "settings-credits-ledger"
+        : router.params.section === "account"
+          ? "settings-account"
+          : "";
+    if (!target) return;
     const timer = window.setTimeout(() => {
-      document.getElementById("settings-credits-ledger")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      document.getElementById(target)?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 300);
     return () => window.clearTimeout(timer);
   }, [router.params.section]);
@@ -123,6 +144,14 @@ export default function SettingsPage() {
       .then((p) => {
         setMoodTags(p.mood_tags || []);
         setGenreTags(p.genre_tags || []);
+        if (p.notify) {
+          setNotifyPrefs({
+            in_app: p.notify.in_app !== false,
+            wechat: p.notify.wechat !== false,
+            email: p.notify.email !== false,
+            recall: p.notify.recall !== false,
+          });
+        }
       })
       .catch(() => {});
     vibeApi
@@ -140,6 +169,11 @@ export default function SettingsPage() {
       setIsTenantAdmin(!!u.is_tenant_admin);
       setIsAdmin(!!u.is_admin);
       setDeletionPending(!!u.deletion_scheduled_at);
+      const addr = u.email || "";
+      const bound = u.email_bound !== false && !isPlaceholderEmail(addr);
+      setAccountEmail(addr);
+      setAccountBound(bound);
+      setAccountVerified(!!u.email_verified && bound);
     }).catch(() => {});
     vibeApi.getConsentStatus().then((s) => {
       setAnalyticsConsent(!!s.analytics_consent);
@@ -148,7 +182,30 @@ export default function SettingsPage() {
     vibeApi.listSupportTickets().then((r) => setSupportTickets(r.tickets || [])).catch(() => {});
     vibeApi.listMyExports().then((r) => setMyExports(r.exports || [])).catch(() => {});
     vibeApi.listMyInvoices().then((r) => setMyInvoices(r.invoices || [])).catch(() => {});
+    vibeApi.getAutoRelease().then((r) => setAutoRelease(Boolean(r.enabled))).catch(() => {});
   }, [isH5]);
+
+  async function toggleAutoRelease() {
+    if (process.env.TARO_ENV === "weapp") {
+      Taro.showToast({ title: copy.creatorUi.weappDeskHint, icon: "none" });
+      return;
+    }
+    if (!requireAuth(STACK_PAGE_ROUTES.settings)) return;
+    const next = !autoRelease;
+    setAutoReleaseBusy(true);
+    try {
+      const res = await vibeApi.setAutoRelease(next);
+      setAutoRelease(Boolean(res.enabled));
+      Taro.showToast({
+        title: res.enabled ? copy.creatorUi.autoReleaseOn : copy.creatorUi.autoReleaseOff,
+        icon: "success",
+      });
+    } catch (err) {
+      toastFromError(err, copy.adminUi.actionFail);
+    } finally {
+      setAutoReleaseBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (checkoutHandled.current || !isH5) return;
@@ -164,44 +221,35 @@ export default function SettingsPage() {
   }, [isH5, router.params.checkout, creditsCtx, s.checkoutSuccess, s.checkoutCancel]);
 
   async function saveProfile() {
-    if (!requireAuth()) return;
+    if (!requireAuth(STACK_PAGE_ROUTES.settings)) return;
     try {
       await vibeApi.updateProfile(displayName.trim() || undefined, bio.trim() || undefined);
       Taro.showToast({ title: s.profileSaved, icon: "success" });
-    } catch {
-      Taro.showToast({ title: s.saveProfileFail, icon: "none" });
+    } catch (err) {
+      toastFromError(err, s.saveProfileFail);
     }
   }
 
   async function uploadAvatar() {
-    if (!requireAuth()) return;
+    if (!requireAuth(STACK_PAGE_ROUTES.settings)) return;
     try {
-      const pick = await Taro.chooseImage({ count: 1, sizeType: ["compressed"] });
-      const filePath = pick.tempFilePaths[0];
-      if (!filePath) return;
-      const { storage_key, upload_url } = await vibeApi.requestAvatarUpload("image/jpeg");
-      const fileData = await Taro.getFileSystemManager().readFileSync(filePath);
-      await fetch(upload_url, {
-        method: "PUT",
-        headers: { "Content-Type": "image/jpeg" },
-        body: fileData as unknown as BodyInit,
-      });
-      await vibeApi.confirmAvatarUpload(storage_key);
-      const profile = await vibeApi.getMyProfile();
-      setAvatarUrl(profile.avatar_url);
+      const { uploadUserAvatar } = await import("../../../utils/avatarUpload");
+      const url = await uploadUserAvatar();
+      if (!url) return;
+      setAvatarUrl(url);
       Taro.showToast({ title: s.profileSaved, icon: "success" });
-    } catch {
-      Taro.showToast({ title: s.saveProfileFail, icon: "none" });
+    } catch (err) {
+      toastFromError(err, s.saveProfileFail);
     }
   }
 
   async function savePreferences() {
-    if (!requireAuth()) return;
+    if (!requireAuth(STACK_PAGE_ROUTES.settings)) return;
     try {
-      await vibeApi.updatePreferences(moodTags, genreTags);
+      await vibeApi.updatePreferences(moodTags, genreTags, notifyPrefs);
       Taro.showToast({ title: s.prefsDiscoverToast, icon: "success" });
-    } catch {
-      Taro.showToast({ title: s.savePrefsFail, icon: "none" });
+    } catch (err) {
+      toastFromError(err, s.savePrefsFail);
     }
   }
 
@@ -222,8 +270,8 @@ export default function SettingsPage() {
       setWebhookUrl("");
       await refreshWebhooks();
       Taro.showToast({ title: s.webhookAdded, icon: "success" });
-    } catch {
-      Taro.showToast({ title: s.webhookAddFail, icon: "none" });
+    } catch (err) {
+      toastFromError(err, s.webhookAddFail);
     } finally {
       setWebhookSaving(false);
     }
@@ -234,20 +282,20 @@ export default function SettingsPage() {
       await vibeApi.deleteWebhook(id);
       await refreshWebhooks();
       Taro.showToast({ title: s.webhookDeleted, icon: "success" });
-    } catch {
-      Taro.showToast({ title: s.webhookDeleteFail, icon: "none" });
+    } catch (err) {
+      toastFromError(err, s.webhookDeleteFail);
     }
   }
 
   async function createApiKey() {
-    if (!requireAuth()) return;
+    if (!requireAuth(STACK_PAGE_ROUTES.settings)) return;
     try {
       const res = await vibeApi.createApiKey(apiKeyName.trim() || "default");
       setApiKeyName("");
       setApiKeys(await vibeApi.listApiKeys());
       Taro.showModal({ title: s.apiKeyCreated, content: res.api_key, showCancel: false });
-    } catch {
-      Taro.showToast({ title: s.saveProfileFail, icon: "none" });
+    } catch (err) {
+      toastFromError(err, s.saveProfileFail);
     }
   }
 
@@ -256,8 +304,8 @@ export default function SettingsPage() {
       await vibeApi.revokeApiKey(id);
       setApiKeys(await vibeApi.listApiKeys());
       Taro.showToast({ title: s.apiKeyRevoked, icon: "success" });
-    } catch {
-      Taro.showToast({ title: s.saveProfileFail, icon: "none" });
+    } catch (err) {
+      toastFromError(err, s.saveProfileFail);
     }
   }
 
@@ -265,8 +313,8 @@ export default function SettingsPage() {
     <PageShell label={copy.navGroups.account} title={s.pageTitle} subtitle={s.pageSubtitle} wide ambient>
       {!isLoggedIn() && (
         <>
-          <AuthBanner message={s.authBanner} loginLabel={copy.loginUi.login} />
-          <Button variant="primary" block onClick={() => requireAuth()} className="settings-auth-cta">
+          <AuthBanner message={s.authBanner} loginLabel={copy.loginUi.login} next={STACK_PAGE_ROUTES.settings} />
+          <Button variant="primary" block onClick={() => requireAuth(STACK_PAGE_ROUTES.settings)} className="settings-auth-cta">
             {copy.loginUi.login}
           </Button>
         </>
@@ -315,6 +363,18 @@ export default function SettingsPage() {
         {s.saveProfile}
       </Button>
 
+      <SectionLabel>{s.accountTitle}</SectionLabel>
+      <AccountSecurityCard
+        email={accountEmail}
+        emailBound={accountBound}
+        emailVerified={accountVerified}
+        onAccountChange={(next) => {
+          setAccountEmail(next.email);
+          setAccountBound(next.emailBound);
+          setAccountVerified(next.emailVerified);
+        }}
+      />
+
       <SectionLabel>{copy.progressUi.title}</SectionLabel>
       <EngagementPanel showHeader={false} />
 
@@ -332,6 +392,23 @@ export default function SettingsPage() {
           <Text key={t} onClick={() => toggleTag(genreTags, t, setGenreTags)}>
             <Tag>{genreTags.includes(t) ? `✓ ${t}` : t}</Tag>
           </Text>
+        ))}
+      </View>
+      <SectionLabel>{copy.profileUi.notifyPrefs}</SectionLabel>
+      <Text className="typo-meta">{copy.profileUi.notifyPrefsHint}</Text>
+      <View className="settings-tags">
+        {(
+          [
+            ["in_app", copy.profileUi.notifyInApp, copy.profileUi.notifyInAppHint],
+            ["email", copy.profileUi.notifyEmail, copy.profileUi.notifyEmailHint],
+            ["wechat", copy.profileUi.notifyWechat, copy.profileUi.notifyWechatHint],
+            ["recall", copy.profileUi.notifyRecall, copy.profileUi.notifyRecallHint],
+          ] as const
+        ).map(([key, label, hint]) => (
+          <View key={key} onClick={() => setNotifyPrefs((prev) => ({ ...prev, [key]: !prev[key] }))}>
+            <Tag>{notifyPrefs[key] ? `✓ ${label}` : label}</Tag>
+            <Text className="typo-meta">{hint}</Text>
+          </View>
         ))}
       </View>
       <Button variant="secondary" block onClick={savePreferences}>
@@ -419,27 +496,59 @@ export default function SettingsPage() {
         onClick={() => {
           enableAllOnboarding();
           Taro.showToast({ title: s.onboardingResetDone, icon: "success" });
+          setTimeout(() => {
+            Taro.switchTab({ url: "/pages/create/index" }).catch(() => {});
+          }, 350);
         }}
       >
         {s.showOnboardingAgain}
       </Button>
 
+      {creditsCtx?.dspDistribution !== false && isLoggedIn() && isH5 && (
+        <>
+          <SectionLabel>{copy.creatorUi.autoReleaseTitle}</SectionLabel>
+          <Text className="typo-meta">{copy.creatorUi.autoReleaseHint}</Text>
+          <Button variant={autoRelease ? "primary" : "secondary"} block loading={autoReleaseBusy} onClick={() => void toggleAutoRelease()}>
+            {autoRelease ? copy.creatorUi.autoReleaseOn : copy.creatorUi.autoReleaseOff}
+          </Button>
+          <Text className="typo-meta">{copy.creatorUi.connectorInstallHint}</Text>
+          {process.env.TARO_ENV === "weapp" ? (
+            <WeappH5Bridge path={CREATOR_PAGE_ROUTES.accounts} />
+          ) : (
+            <Button variant="secondary" block onClick={() => Taro.navigateTo({ url: CREATOR_PAGE_ROUTES.accounts })}>
+              {copy.creatorUi.installConnectorCta}
+            </Button>
+          )}
+        </>
+      )}
+
       <SectionLabel>{s.navSection}</SectionLabel>
       <View className="settings-nav-grid">
-        <NavTile icon="bell" label={s.navNotifications} tone="accent" onClick={() => Taro.navigateTo({ url: STACK_PAGE_ROUTES.notifications })} />
-        <NavTile icon="journey" label={copy.emotionCalendarUi.title} tone="info" onClick={() => Taro.navigateTo({ url: STACK_PAGE_ROUTES.emotionCalendar })} />
-        <NavTile icon="music" label={s.navPricing} tone="warm" onClick={() => Taro.navigateTo({ url: STACK_PAGE_ROUTES.pricing })} />
-        <NavTile icon="discover" label={copy.marketplaceUi.title} tone="warm" onClick={() => Taro.navigateTo({ url: STACK_PAGE_ROUTES.marketplace })} />
-        {isH5 && (
-          <NavTile icon="create" label={s.navCopilot} tone="info" onClick={() => Taro.navigateTo({ url: "/packageCopilot/pages/copilot/index" })} />
-        )}
-        {isH5 && isAdmin && (
-          <NavTile icon="profile" label={s.navAdmin} tone="neutral" onClick={() => Taro.navigateTo({ url: "/packageOps/pages/admin/index" })} />
-        )}
-        {(isH5 || isTenantAdmin) && (
-          <NavTile icon="journey" label={s.navTenant} tone="info" onClick={() => Taro.navigateTo({ url: "/packageOps/pages/tenant/index" })} />
+        {creditsCtx?.dspDistribution !== false ? (
+          <NavTile icon="sigil" label={copy.creatorUi.hubTitle} tone="accent" onClick={() => openCreatorDesk()} />
+        ) : (
+          <NavTile icon="bell" label={s.navNotifications} tone="accent" onClick={() => Taro.navigateTo({ url: STACK_PAGE_ROUTES.notifications })} />
         )}
       </View>
+      <Collapsible label={s.navMore} defaultOpen={false}>
+        <View className="settings-nav-grid">
+          {creditsCtx?.dspDistribution !== false && (
+            <NavTile icon="bell" label={s.navNotifications} tone="neutral" onClick={() => Taro.navigateTo({ url: STACK_PAGE_ROUTES.notifications })} />
+          )}
+          <NavTile icon="journey" label={copy.emotionCalendarUi.title} tone="neutral" onClick={() => Taro.navigateTo({ url: STACK_PAGE_ROUTES.emotionCalendar })} />
+          <NavTile icon="music" label={s.navPricing} tone="neutral" onClick={() => Taro.navigateTo({ url: STACK_PAGE_ROUTES.pricing })} />
+          <NavTile icon="discover" label={copy.marketplaceUi.title} tone="neutral" onClick={() => Taro.navigateTo({ url: STACK_PAGE_ROUTES.marketplace })} />
+          {isH5 && (
+            <NavTile icon="create" label={s.navCopilot} tone="neutral" onClick={() => Taro.navigateTo({ url: "/packageCopilot/pages/copilot/index" })} />
+          )}
+          {isH5 && isAdmin && (
+            <NavTile icon="profile" label={s.navAdmin} tone="neutral" onClick={() => Taro.navigateTo({ url: "/packageOps/pages/admin/index" })} />
+          )}
+          {(isH5 || isTenantAdmin) && (
+            <NavTile icon="journey" label={s.navTenant} tone="neutral" onClick={() => Taro.navigateTo({ url: "/packageOps/pages/tenant/index" })} />
+          )}
+        </View>
+      </Collapsible>
 
       {isH5 && isLoggedIn() && (
         <>
@@ -548,8 +657,8 @@ export default function SettingsPage() {
               await vibeApi.cancelAccountDeletion();
               setDeletionPending(false);
               Taro.showToast({ title: l.cancelDeletionSuccess, icon: "success" });
-            } catch {
-              Taro.showToast({ title: l.deleteAccountFail, icon: "none" });
+            } catch (err) {
+              toastFromError(err, l.deleteAccountFail);
             }
           }}>
             {l.cancelDeletion}
@@ -557,13 +666,19 @@ export default function SettingsPage() {
         </Card>
       )}
       <View className="settings-nav-grid">
-        <NavTile icon="profile" label={l.privacyPolicy} tone="neutral" onClick={() => Taro.navigateTo({ url: LEGAL_ROUTES.privacy })} />
-        <NavTile icon="profile" label={l.termsOfService} tone="neutral" onClick={() => Taro.navigateTo({ url: LEGAL_ROUTES.terms })} />
-        <NavTile icon="create" label={l.aiServiceNotice} tone="neutral" onClick={() => Taro.navigateTo({ url: LEGAL_ROUTES.aiNotice })} />
-        <NavTile icon="feed" label={l.communityGuidelines} tone="neutral" onClick={() => Taro.navigateTo({ url: LEGAL_ROUTES.communityRules })} />
-        <NavTile icon="music" label={l.paymentTerms} tone="neutral" onClick={() => Taro.navigateTo({ url: LEGAL_ROUTES.paymentTerms })} />
-        <NavTile icon="profile" label={l.minorProtection} tone="neutral" onClick={() => Taro.navigateTo({ url: LEGAL_ROUTES.minorProtection })} />
+        <NavTile icon="profile" label={l.privacyPolicy} tone="accent" onClick={() => Taro.navigateTo({ url: LEGAL_ROUTES.privacy })} />
       </View>
+      <Collapsible label={l.legalMore} defaultOpen={false}>
+        <View className="settings-nav-grid">
+          <NavTile icon="profile" label={l.termsOfService} tone="neutral" onClick={() => Taro.navigateTo({ url: LEGAL_ROUTES.terms })} />
+          <NavTile icon="create" label={l.aiServiceNotice} tone="neutral" onClick={() => Taro.navigateTo({ url: LEGAL_ROUTES.aiNotice })} />
+          <NavTile icon="feed" label={l.communityGuidelines} tone="neutral" onClick={() => Taro.navigateTo({ url: LEGAL_ROUTES.communityRules })} />
+          <NavTile icon="music" label={l.paymentTerms} tone="neutral" onClick={() => Taro.navigateTo({ url: LEGAL_ROUTES.paymentTerms })} />
+          <NavTile icon="profile" label={l.minorProtection} tone="neutral" onClick={() => Taro.navigateTo({ url: LEGAL_ROUTES.minorProtection })} />
+          <NavTile icon="sigil" label={l.distributionLicense} tone="neutral" onClick={() => Taro.navigateTo({ url: LEGAL_ROUTES.distributionLicense })} />
+          <NavTile icon="grimoire" label={l.royaltyPayout} tone="neutral" onClick={() => Taro.navigateTo({ url: LEGAL_ROUTES.royaltyPayout })} />
+        </View>
+      </Collapsible>
       <ConsentCheckbox checked={analyticsConsent} onChange={async (v) => {
         setAnalyticsConsent(v);
         try {
@@ -579,8 +694,8 @@ export default function SettingsPage() {
           const data = await vibeApi.exportMyData();
           await Taro.setClipboardData({ data: JSON.stringify(data, null, 2) });
           Taro.showToast({ title: l.exportDataSuccess, icon: "success" });
-        } catch {
-          Taro.showToast({ title: copy.workUi.loadFail, icon: "none" });
+        } catch (err) {
+          toastFromError(err, copy.workUi.loadFail);
         }
       }}>
         {l.exportData}
@@ -597,13 +712,19 @@ export default function SettingsPage() {
           <Input label={l.deleteAccountPassword} password value={deletePassword} onInput={(e) => setDeletePassword(e.detail.value)} />
           <View className="settings-delete-actions">
             <Button variant="danger" block onClick={async () => {
+              const ok = await confirmAction({
+                title: l.deleteAccount,
+                content: l.deleteAccountWarning,
+                confirmText: l.deleteAccountConfirm,
+              });
+              if (!ok) return;
               try {
                 await vibeApi.deleteAccount(deletePassword || undefined);
                 Taro.showToast({ title: l.deleteAccountSuccess, icon: "success" });
                 clearToken();
                 Taro.switchTab({ url: "/pages/profile/index" });
-              } catch {
-                Taro.showToast({ title: l.deleteAccountFail, icon: "none" });
+              } catch (err) {
+                toastFromError(err, l.deleteAccountFail);
               }
             }}>
               {l.deleteAccountConfirm}
@@ -616,7 +737,16 @@ export default function SettingsPage() {
       )}
 
       {isLoggedIn() && (
-        <Button variant="ghost" block onClick={() => { clearToken(); Taro.switchTab({ url: "/pages/profile/index" }); }} className="settings-logout">
+        <Button variant="ghost" block onClick={async () => {
+          const ok = await confirmAction({
+            title: s.logout,
+            content: s.logoutConfirm,
+            confirmText: s.logout,
+          });
+          if (!ok) return;
+          clearToken();
+          Taro.switchTab({ url: "/pages/profile/index" });
+        }} className="settings-logout">
           {s.logout}
         </Button>
       )}

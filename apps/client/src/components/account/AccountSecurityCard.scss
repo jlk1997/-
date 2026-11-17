@@ -1,0 +1,75 @@
+@import "../../styles/_utilities.scss";
+
+.account-security {
+  display: flex;
+  flex-direction: column;
+  gap: $space-sm;
+  margin: $space-sm 0 $space-md;
+  padding: $space-md;
+  background: $obsidian;
+  border: 1rpx solid $border-subtle;
+  border-radius: $radius-lg;
+}
+
+.account-security__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: $space-2xs $space-xs;
+}
+
+.account-security__label,
+.account-security__value {
+  font-size: var(--text-meta);
+  color: $muted;
+}
+
+.account-security__value {
+  color: $text;
+  font-family: var(--font-mono);
+}
+
+.account-security__badge {
+  margin-left: auto;
+  font-size: var(--text-micro);
+  color: $muted;
+}
+
+.account-security__badge.is-ok {
+  color: $gold;
+}
+
+.account-security__title {
+  display: block;
+  font-size: var(--text-body);
+  font-family: var(--font-display);
+  font-weight: $font-weight-semibold;
+}
+
+.account-security__block {
+  display: flex;
+  flex-direction: column;
+  gap: $space-xs;
+  padding-top: $space-xs;
+  border-top: 1rpx solid $border-subtle;
+}
+
+.account-security__otp {
+  display: flex;
+  align-items: flex-end;
+  gap: $space-xs;
+}
+
+.account-security__otp-field {
+  flex: 1;
+  min-width: 0;
+
+  .ui-field {
+    margin-top: 0;
+  }
+}
+
+.account-security__otp .ui-btn {
+  flex-shrink: 0;
+  margin-bottom: 2rpx;
+}

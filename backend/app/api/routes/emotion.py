@@ -21,10 +21,12 @@ async def analyze_emotion(
     suffix = "." + (file.filename or "audio.wav").split(".")[-1]
     result = emotion_engine.analyze_bytes(data, suffix=suffix)
     return EmotionAnalyzeResponse(
-        moods=result["moods"],
-        genres=result["genres"],
+        moods=result.get("moods") or [],
+        genres=result.get("genres") or [],
         arousal=result.get("arousal"),
         valence=result.get("valence"),
+        degraded=bool(result.get("degraded")),
+        reason=result.get("reason"),
     )
 
 

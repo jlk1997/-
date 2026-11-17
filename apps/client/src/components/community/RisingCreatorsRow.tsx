@@ -20,7 +20,14 @@ type Props = {
 export function RisingCreatorsRow({ creators }: Props) {
   const { copy } = useLocale();
   const d = copy.discoverUi;
-  if (!creators.length) return null;
+  if (!creators.length) {
+    return (
+      <View className="rising-creators rising-creators--empty">
+        <SectionLabel>{d.risingCreatorsTitle}</SectionLabel>
+        <Text className="rising-creators__meta">{d.risingCreatorsEmpty}</Text>
+      </View>
+    );
+  }
 
   return (
     <View className="rising-creators">

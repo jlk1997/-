@@ -5,13 +5,13 @@ import uuid
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.models.schemas import FeatureFlag, GenerationJob, ProvenanceRecord, Work
+from app.models.schemas import FeatureFlag, GenerationJob, ProvenanceRecord, User, Work
 from app.services.c2pa import anchor_to_blockchain, build_c2pa_manifest, embed_c2pa_binary
 from app.services.job_progress import update_job_phase
 from app.services.media import generate_waveform_preview, transcode_to_hls
 from app.services.provenance import build_lineage
 from app.services.storage import get_storage_service
-from app.integrations.minimax.image import image_client
+from app.integrations.vendors.router import generate_image as routed_generate_image
 
 logger = logging.getLogger(__name__)
 
@@ -21,10 +21,16 @@ def _flag_enabled(db: Session, key: str, default: bool = True) -> bool:
     return flag.enabled if flag else default
 
 
-def _merge_post_process_status(work: Work, **flags: bool | str) -> None:
+def _merge_post_process_status(work: Work, **flags) -> None:
+    from sqlalchemy.orm.attributes import flag_modified
+
     pps = dict(work.post_process_status or {})
     pps.update({k: v for k, v in flags.items() if v is not None})
     work.post_process_status = pps
+    try:
+        flag_modified(work, "post_process_status")
+    except Exception:
+        pass
 
 
 def _touch_job(
@@ -76,7 +82,7 @@ async def post_process_work(
         key = f"covers/waveform/{work_id}.png"
         _, url = get_storage_service().upload_bytes(waveform, key, "image/png")
         results["waveform_url"] = url
-        _merge_post_process_status(work, waveform_done=True)
+        _merge_post_process_status(work, waveform_done=True, waveform_url=url)
 
     _touch_job(db, job_id, progress=0.95, status_message="正在炼制封面…", phase="cover")
     if _flag_enabled(db, "music_cover", default=False):
@@ -85,7 +91,7 @@ async def post_process_work(
             f"{', '.join((work.genres or [])[:2])}, abstract emotional, cinematic"
         )
         try:
-            cover_result = await image_client.generate_cover_image(
+            cover_result = await routed_generate_image(
                 prompt=cover_prompt,
                 user_id=str(work.owner_id),
                 db=db,
@@ -169,6 +175,42 @@ async def post_process_work(
                 c2pa_embedded=bool(package_info.get("embedded")),
             )
         results["c2pa"] = package_info
+
+    if _flag_enabled(db, "release_qc"):
+        try:
+            from app.services.distribution.release_ready import run_release_qc
+
+            owner = db.query(User).filter(User.id == work.owner_id).first()
+            qc = run_release_qc(db, work, audio_bytes, user=owner)
+            _merge_post_process_status(
+                work,
+                release_qc=qc.get("passed"),
+                release_assets=qc.get("assets") or {},
+                release_qc_result=qc,
+            )
+            if qc.get("passed") and (not work.release_status or work.release_status in {"qc_failed", "draft", "none"}):
+                work.release_status = "qc_ready"
+            if owner:
+                from app.services.distribution.automation import attach_generation_qc
+
+                attach_generation_qc(db, work, owner, qc)
+            results["release_qc"] = qc
+        except Exception as exc:
+            logger.warning("Release QC skipped for %s: %s", work_id, exc)
+            results["release_qc"] = {"passed": False, "skipped": str(exc)}
+
+    try:
+        from app.services.distribution.release_ready import preflight_from_qc, run_generation_preflight
+
+        qc_result = results.get("release_qc") if isinstance(results.get("release_qc"), dict) else None
+        if qc_result and isinstance(qc_result.get("checks"), dict):
+            pre = preflight_from_qc(work, qc_result)
+        else:
+            pre = run_generation_preflight(work, audio_bytes)
+        _merge_post_process_status(work, generation_preflight=pre)
+        results["generation_preflight"] = pre
+    except Exception as exc:
+        logger.warning("Generation preflight skipped for %s: %s", work_id, exc)
 
     db.commit()
     _finalize_post_process_state(db, work, results)

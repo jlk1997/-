@@ -1,15 +1,17 @@
 import { View, Image } from "@tarojs/components";
 import { clsx } from "../../utils/clsx";
+import { CoverPlate } from "../ui/CoverPlate";
 import "./NetEaseDisc.scss";
 
 type Props = {
   coverUrl?: string;
+  title?: string;
   playing?: boolean;
   className?: string;
 };
 
 /** 网易云风格：黑胶盘 + 唱针臂，播放时旋转并落针 */
-export function NetEaseDisc({ coverUrl, playing, className }: Props) {
+export function NetEaseDisc({ coverUrl, title, playing, className }: Props) {
   return (
     <View className={clsx("netease-disc", playing && "netease-disc--playing", className)}>
       <View className={clsx("netease-disc__arm", playing && "netease-disc__arm--down")}>
@@ -23,7 +25,7 @@ export function NetEaseDisc({ coverUrl, playing, className }: Props) {
         {coverUrl ? (
           <Image className="netease-disc__cover" src={coverUrl} mode="aspectFill" />
         ) : (
-          <View className="netease-disc__cover netease-disc__cover--fallback" />
+          <CoverPlate className="netease-disc__cover" title={title || "音"} seed={title} size="lg" />
         )}
       </View>
     </View>

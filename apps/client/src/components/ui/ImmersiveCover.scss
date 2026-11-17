@@ -5,7 +5,7 @@
   // (min-height set inline) so tall children like avatars are never cut off.
   overflow: hidden;
   border-radius: $radius-lg;
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border-subtle;
   display: flex;
 }
 

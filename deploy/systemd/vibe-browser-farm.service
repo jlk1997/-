@@ -1,0 +1,14 @@
+[Unit]
+Description=Vibe Sorcery Browser Farm
+After=network.target redis.service postgresql.service
+
+[Service]
+Type=simple
+User=vibe
+WorkingDirectory=/opt/vibe-sorcery/apps/browser-farm
+ExecStart=/opt/vibe-sorcery/.venv/bin/python worker.py --loop --interval 20
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

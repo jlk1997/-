@@ -4,7 +4,7 @@
   margin-top: $space-sm;
   padding: $space-sm;
   background: $obsidian;
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border-subtle;
   border-radius: $radius-lg;
   overflow: hidden;
 }
@@ -73,7 +73,7 @@
   color: $gold;
 }
 
-.gen-progress__ritual {
+.gen-progress__orbs {
   position: absolute;
   inset: 0;
   pointer-events: none;
@@ -92,7 +92,7 @@
     top: -60rpx;
     left: 20%;
     background: $gold-muted;
-    animation: gen-orb-pulse $duration-slow $ease-ritual infinite;
+    animation: gen-orb-pulse $duration-slow $ease-standard infinite;
   }
 
   &--2 {
@@ -101,7 +101,7 @@
     bottom: -40rpx;
     right: 15%;
     background: $teal-muted;
-    animation: gen-orb-pulse $duration-slow $ease-ritual infinite reverse;
+    animation: gen-orb-pulse $duration-slow $ease-standard infinite reverse;
   }
 }
 
@@ -137,7 +137,7 @@
 
 .gen-progress__viz--composing .ui-ring-gauge__ring {
   box-shadow: 0 0 24rpx rgba(212, 175, 106, 0.35);
-  animation: gen-compose-pulse $duration-slow $ease-ritual infinite;
+  animation: gen-compose-pulse $duration-slow $ease-standard infinite;
 }
 
 @keyframes gen-compose-pulse {
@@ -168,12 +168,11 @@
   margin-top: $space-2xs;
 }
 
-.gen-progress__degraded {
-  display: block;
-  text-align: center;
-  color: $muted;
-  margin: $space-xs $space-sm 0;
-  line-height: 1.45;
+.gen-progress__degraded-card {
+  display: flex;
+  flex-direction: column;
+  gap: $space-xs;
+  margin: $space-sm $space-sm 0;
 }
 
 .gen-progress__tip {
@@ -196,7 +195,7 @@
 .gen-progress__preview {
   margin-top: $space-sm;
   padding: $space-xs;
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border-subtle;
   border-radius: $radius-md;
   background: rgba(255, 255, 255, 0.03);
   display: flex;
@@ -289,6 +288,7 @@
   color: $muted;
 }
 
+.gen-progress__two-take-hero,
 .gen-progress__listen-hero {
   position: relative;
   z-index: 1;

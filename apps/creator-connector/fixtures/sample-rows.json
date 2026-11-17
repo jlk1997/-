@@ -1,0 +1,20 @@
+[
+  {
+    "channel_code": "netease",
+    "period_key": "2026-08",
+    "title": "Night Drive",
+    "streams": 1280,
+    "revenue_minor": 640,
+    "currency": "CNY",
+    "confidence": 0.6
+  },
+  {
+    "channel_code": "spotify",
+    "period_key": "2026-08",
+    "title": "Night Drive",
+    "streams": 4200,
+    "revenue_minor": 2100,
+    "currency": "USD",
+    "confidence": 0.6
+  }
+]

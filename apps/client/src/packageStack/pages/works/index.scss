@@ -5,6 +5,16 @@
   justify-content: space-between;
   gap: $space-sm;
   margin-bottom: $space-md;
+
+  .ui-chip-group {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+.works-fix-banner .ui-status {
+  margin-top: $space-sm;
+  margin-bottom: $space-sm;
 }
 
 .works-grid {
@@ -20,6 +30,42 @@
 .works-list {
   display: flex;
   flex-direction: column;
+}
+
+.works-release {
+  margin-top: $space-2xs;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8rpx 12rpx;
+  border-radius: $radius-md;
+  background: $gold-muted;
+  border: 1rpx solid $border-subtle;
+
+  &--fix {
+    background: rgba(251, 191, 36, 0.12);
+    border-color: rgba(251, 191, 36, 0.28);
+
+    .works-release__cta {
+      color: $warning;
+    }
+  }
+
+  &--row {
+    margin-top: 0;
+    margin-bottom: $space-xs;
+  }
+
+  &__cta {
+    color: $gold;
+    font-size: var(--text-micro);
+    font-weight: 600;
+  }
+
+  &__status {
+    color: $muted;
+    font-size: var(--text-micro);
+  }
 }
 
 .works-batch-delete {

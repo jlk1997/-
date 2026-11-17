@@ -16,6 +16,28 @@ export function consumeFeedHighlightPostId(): string | null {
   return id;
 }
 
+export async function openExistingDiscoverPost(workId: string, knownPostId?: string | null): Promise<boolean> {
+  if (knownPostId) {
+    openCommunityPost(knownPostId);
+    return true;
+  }
+  try {
+    const work = (await vibeApi.getWork(workId)) as { community_post_id?: string | null };
+    if (work.community_post_id) {
+      openCommunityPost(work.community_post_id);
+      return true;
+    }
+  } catch {
+    /* fall through to feed lookup */
+  }
+  const resolved = await resolvePostIdForWork(workId);
+  if (resolved) {
+    openCommunityPost(resolved);
+    return true;
+  }
+  return false;
+}
+
 export async function resolvePostIdForWork(workId: string): Promise<string | null> {
   if (!isLoggedIn()) return null;
   bootstrapAuth();

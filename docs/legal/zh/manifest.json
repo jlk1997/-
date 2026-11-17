@@ -46,6 +46,20 @@
       "version": "2026-07-20",
       "file": "minor-protection.md",
       "required_for": []
+    },
+    {
+      "slug": "distribution-license",
+      "title": "分发授权与分成协议",
+      "version": "2026-09-02",
+      "file": "distribution-license.md",
+      "required_for": ["distribution"]
+    },
+    {
+      "slug": "royalty-payout",
+      "title": "分成说明与提现须知",
+      "version": "2026-08-21",
+      "file": "royalty-payout.md",
+      "required_for": []
     }
   ]
 }

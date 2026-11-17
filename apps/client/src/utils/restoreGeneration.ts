@@ -1,4 +1,5 @@
 import { vibeApi } from "../services/api";
+import { workbenchUrl } from "./workbenchNav";
 import {
   clearActiveGeneration,
   loadActiveGeneration,
@@ -7,6 +8,7 @@ import {
   type StoredActiveGeneration,
 } from "./generationStorage";
 import { isTerminalJobStatus } from "./generationPhases";
+import { isLoggedIn } from "./auth";
 
 export type { RemixSourceSnapshot } from "./generationStorage";
 
@@ -14,15 +16,17 @@ export function persistActiveGeneration(snapshot: StoredActiveGeneration) {
   saveActiveGeneration(snapshot);
 }
 
-function remixSourceFromJob(job: {
+export function remixSourceFromJob(job: {
   job_type?: string | null;
   remix_source?: { work_id: string; remix_intent?: string | null; output_title?: string | null } | null;
 }): RemixSourceSnapshot | undefined {
   const src = job.remix_source;
-  if (job.job_type !== "remix" || !src?.work_id) return undefined;
+  if (!src?.work_id) return undefined;
+  const workbench = job.job_type === "workbench_render" || src.remix_intent === "workbench";
+  if (job.job_type !== "remix" && !workbench) return undefined;
   return {
     workId: src.work_id,
-    title: "",
+    title: src.output_title || "",
     intent: src.remix_intent || undefined,
   };
 }
@@ -48,11 +52,13 @@ export async function resolveRestorableJobId(): Promise<{
         returnUrl: stored.returnUrl,
         startedAt: stored.startedAt,
         jobType:
-          job.job_type === "remix"
-            ? "remix"
-            : job.job_type === "variations"
-              ? "variations"
-              : stored.jobType,
+          job.job_type === "workbench_render" || job.remix_source?.remix_intent === "workbench"
+            ? "workbench"
+            : job.job_type === "remix"
+              ? "remix"
+              : job.job_type === "variations"
+                ? "variations"
+                : stored.jobType,
         remixSource,
       };
     } catch {
@@ -62,20 +68,27 @@ export async function resolveRestorableJobId(): Promise<{
   }
 
   try {
+    if (!isLoggedIn()) return null;
     const active = await vibeApi.getActiveJob();
     if (!active?.id || isTerminalJobStatus(active.status)) return null;
     const remixSource = remixSourceFromJob(active);
     const jobType: StoredActiveGeneration["jobType"] =
-      active.job_type === "remix"
-        ? "remix"
-        : active.job_type === "variations"
-          ? "variations"
-          : active.total_steps > 1
-            ? "playlist"
-            : "single";
+      active.job_type === "workbench_render" || active.remix_source?.remix_intent === "workbench"
+        ? "workbench"
+        : active.job_type === "remix"
+          ? "remix"
+          : active.job_type === "variations"
+            ? "variations"
+            : active.total_steps > 1
+              ? "playlist"
+              : "single";
+    const sourceWorkId = active.remix_source?.work_id;
     const snapshot: StoredActiveGeneration = {
       jobId: active.id,
-      returnUrl: "/pages/create/index",
+      returnUrl:
+        jobType === "workbench" && sourceWorkId
+          ? workbenchUrl(sourceWorkId)
+          : "/pages/create/index",
       startedAt: new Date().toISOString(),
       jobType,
       remixSource,

@@ -22,7 +22,10 @@ export function AudioAnchorPanel({ onAnalysis }: Props) {
       const result = await analyzeEmotionUniversal(file);
       setLast(result);
       onAnalysis(result);
-      Taro.showToast({ title: j.audioAnchorSuccess, icon: "success" });
+      Taro.showToast({
+        title: result.degraded ? j.audioAnchorDegraded : j.audioAnchorSuccess,
+        icon: "none",
+      });
     } catch {
       Taro.showToast({ title: j.audioAnchorFail, icon: "none" });
     } finally {

@@ -56,6 +56,8 @@ jobs:
           CREDITS_GATE_ENABLED: "true"
           PYTHONPATH: ${{ github.workspace }};${{ github.workspace }}/backend
         run: pytest backend/tests -q
+      - name: Playbook health
+        run: node packages/dsp-playbooks/health-ci.js
       - name: OpenAPI schema sync check
         env:
           DATABASE_URL: postgresql://vibe:vibe@localhost:5432/vibe_sorcery
@@ -142,6 +144,10 @@ jobs:
           cache-dependency-path: package-lock.json
       - name: Install workspaces
         run: npm install
+      - name: Copy and token lint
+        run: |
+          node scripts/copy-lint.mjs
+          node scripts/style-token-lint.mjs
       - name: Build H5
         working-directory: apps/client
         run: npm run build:h5

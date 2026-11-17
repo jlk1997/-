@@ -1,0 +1,65 @@
+{
+  "locale": "en",
+  "effective_date": "2026-07-20",
+  "company_name": "炼金音坊",
+  "contact_email": "privacy@vibe-sorcery.com",
+  "contact_phone": "400-000-0000",
+  "documents": [
+    {
+      "slug": "privacy-policy",
+      "title": "Privacy Policy",
+      "version": "2026-07-20",
+      "file": "privacy-policy.md",
+      "required_for": ["privacy"]
+    },
+    {
+      "slug": "terms-of-service",
+      "title": "Terms of Service",
+      "version": "2026-07-20",
+      "file": "terms-of-service.md",
+      "required_for": ["terms"]
+    },
+    {
+      "slug": "ai-service-notice",
+      "title": "AI Service Notice",
+      "version": "2026-07-20",
+      "file": "ai-service-notice.md",
+      "required_for": ["ai_notice"]
+    },
+    {
+      "slug": "community-guidelines",
+      "title": "Community Guidelines",
+      "version": "2026-07-20",
+      "file": "community-guidelines.md",
+      "required_for": []
+    },
+    {
+      "slug": "payment-terms",
+      "title": "Payment Terms",
+      "version": "2026-07-20",
+      "file": "payment-terms.md",
+      "required_for": ["payment"]
+    },
+    {
+      "slug": "minor-protection",
+      "title": "Minor Protection",
+      "version": "2026-07-20",
+      "file": "minor-protection.md",
+      "required_for": []
+    },
+    {
+      "slug": "distribution-license",
+      "title": "Distribution & split agreement",
+      "version": "2026-09-02",
+      "file": "distribution-license.md",
+      "required_for": ["distribution"]
+    },
+    {
+      "slug": "royalty-payout",
+      "title": "Royalty and payout notice",
+      "version": "2026-08-21",
+      "file": "royalty-payout.md",
+      "required_for": []
+    }
+  ]
+}

@@ -1,10 +1,16 @@
-import Taro from "@tarojs/taro";
-import { stackPage } from "../constants/routes";
+import { creatorPage, stackPage } from "../constants/routes";
+import { isPostProcessDegraded } from "./postProcess";
+import { openStackPage } from "./navigation";
 
-export type WorkFilter = "all" | "draft" | "published" | "derivative";
+export type WorkFilter = "all" | "draft" | "published" | "derivative" | "needsFix";
 
 export function openWorkDetail(workId: string) {
-  Taro.navigateTo({ url: stackPage("work", { workId }) });
+  openStackPage(stackPage("work", { workId }));
+}
+
+/** Owner social wins go to the label ledger, not the public stack page. */
+export function openWorkForOwner(workId: string, mine: boolean) {
+  openStackPage(mine ? creatorPage("work", { workId }) : stackPage("work", { workId }));
 }
 
 function hasCommunityPost(
@@ -24,7 +30,9 @@ export function isWorkPublished(
   return work.visibility === "public" || hasCommunityPost(postByWork, work.id);
 }
 
-export function filterWorks<T extends { id: string; visibility?: string; parent_work_id?: string }>(
+export function filterWorks<
+  T extends { id: string; visibility?: string; parent_work_id?: string; post_process_status?: Record<string, unknown> },
+>(
   works: T[],
   filter: WorkFilter,
   postByWork: Record<string, string | { postId?: string } | undefined>,
@@ -39,10 +47,13 @@ export function filterWorks<T extends { id: string; visibility?: string; parent_
   if (filter === "derivative") {
     return works.filter((w) => !!w.parent_work_id);
   }
+  if (filter === "needsFix") {
+    return works.filter((w) => isPostProcessDegraded(w.post_process_status));
+  }
   return works;
 }
 
 export function parseWorkFilter(raw?: string): WorkFilter {
-  if (raw === "published" || raw === "draft" || raw === "derivative") return raw;
+  if (raw === "published" || raw === "draft" || raw === "derivative" || raw === "needsFix") return raw;
   return "all";
 }

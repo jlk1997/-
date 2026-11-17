@@ -7,7 +7,7 @@ import re
 import secrets
 import uuid
 from typing import TYPE_CHECKING
-from urllib.parse import urlencode
+from urllib.parse import unquote, urlencode
 
 from fastapi import HTTPException
 
@@ -165,16 +165,30 @@ def resolve_protected_hls_url(work: Work, user: User | uuid.UUID | None = None) 
     return protected_hls_playlist_url(work, user)
 
 
-def rewrite_hls_playlist_for_gateway(m3u8_text: str, *, work_id: str, ticket: str) -> str:
-    """Replace segment lines with same-origin proxied URLs (ticket required per segment)."""
-    from app.services.hls import _SEGMENT_LINE
+def _segment_name_from_playlist_line(line: str) -> str | None:
+    """Pull seg_000.ts out of a relative name or a presigned absolute URL."""
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#"):
+        return None
+    path = stripped.split("?", 1)[0].split("#", 1)[0]
+    name = path.rsplit("/", 1)[-1]
+    if not is_safe_segment_name(name):
+        return None
+    return name
 
+
+def rewrite_hls_playlist_for_gateway(m3u8_text: str, *, work_id: str, ticket: str) -> str:
+    """Replace segment lines with same-origin proxied URLs (ticket required per segment).
+
+    Presigned object URLs do not match a line that ends in ``.ts`` once the
+    signature query is attached, so those lines used to leak through and the
+    player requested MinIO with a signature the gateway host rejects.
+    """
     base = _api_base()
     out: list[str] = []
     for line in m3u8_text.splitlines():
-        stripped = line.strip()
-        if stripped and _SEGMENT_LINE.match(stripped):
-            seg_name = stripped.split("/")[-1]
+        seg_name = _segment_name_from_playlist_line(line)
+        if seg_name:
             qs = urlencode({"ticket": ticket})
             out.append(f"{base}/works/{work_id}/hls/segments/{seg_name}?{qs}")
         else:

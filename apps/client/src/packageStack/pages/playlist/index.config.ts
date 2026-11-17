@@ -1,4 +1,3 @@
 export default {
-  navigationBarTitleText: "Vibe Sorcery",
-  enableShareAppMessage: true,
+  navigationBarTitleText: "歌单",
 };

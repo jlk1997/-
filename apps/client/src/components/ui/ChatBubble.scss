@@ -24,7 +24,7 @@
     height: 64rpx;
     border-radius: $radius-pill;
     background: $gold-muted;
-    border: 1rpx solid $border-ritual;
+    border: 1rpx solid $border-subtle;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -44,13 +44,13 @@
 
 .chat-bubble--user .chat-bubble__body {
   background: linear-gradient(135deg, rgba(212, 175, 106, 0.22), rgba(212, 175, 106, 0.1));
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border-subtle;
   border-bottom-right-radius: $radius-sm;
 }
 
 .chat-bubble--assistant .chat-bubble__body {
   background: $obsidian;
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border-subtle;
   border-bottom-left-radius: $radius-sm;
 }
 

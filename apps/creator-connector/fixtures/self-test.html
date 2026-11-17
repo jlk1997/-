@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN" data-vibe-channel="netease">
+  <head>
+    <meta charset="utf-8" />
+    <title>比特音收割夹具</title>
+    <style>
+      body { font: 16px/1.5 "Segoe UI", "PingFang SC", sans-serif; margin: 24px; color: #1b1b1b; }
+      table { border-collapse: collapse; margin: 16px 0; }
+      th, td { border: 1px solid #ccc; padding: 6px 10px; }
+      textarea { width: 100%; min-height: 80px; }
+      .note { color: #555; }
+    </style>
+  </head>
+  <body>
+    <h1>比特音本机收割夹具</h1>
+    <p class="note">这不是真店后台。用来验收扩展能读表、读官方 CSV 文本。点扩展里的「收割当前页」应读到带曲目码的行。</p>
+    <table>
+      <tr>
+        <th>曲名</th>
+        <th>播放</th>
+        <th>收益</th>
+      </tr>
+      <tr>
+        <td>Night Drive [VSAAAAAAAABBBB]</td>
+        <td>1200</td>
+        <td>36.50</td>
+      </tr>
+      <tr>
+        <td>Second Track [VSCCCCCCCCDDDD]</td>
+        <td>800</td>
+        <td>18.00</td>
+      </tr>
+    </table>
+    <p><a href="data:text/csv;charset=utf-8,Title%2CStreams%2CRevenue%0ANight%20Drive%20%5BVSAAAAAAAABBBB%5D%2C1200%2C36.50" download="export.csv">导出CSV</a></p>
+    <textarea data-vibe-csv>Title,Streams,Revenue
+Night Drive [VSAAAAAAAABBBB],1200,36.50
+Second Track [VSCCCCCCCCDDDD],800,18.00
+</textarea>
+  </body>
+</html>

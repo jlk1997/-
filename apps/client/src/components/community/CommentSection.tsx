@@ -23,13 +23,14 @@ type Props = {
   onCountChange?: (count: number) => void;
   myUserId?: string | null;
   myUsername?: string | null;
+  authNext?: string;
 };
 
 function initial(name: string) {
   return (name || "?").slice(0, 1).toUpperCase();
 }
 
-export function CommentSection({ postId, commentCount = 0, onCountChange, myUserId, myUsername }: Props) {
+export function CommentSection({ postId, commentCount = 0, onCountChange, myUserId, myUsername, authNext }: Props) {
   const { copy } = useLocale();
   const d = copy.discoverUi;
   const social = copy.socialUi;
@@ -64,7 +65,7 @@ export function CommentSection({ postId, commentCount = 0, onCountChange, myUser
   }
 
   async function submit() {
-    if (!requireAuth()) return;
+    if (!requireAuth(authNext)) return;
     const text = draft.trim();
     if (text.length < 2) {
       Taro.showToast({ title: d.commentMin, icon: "none" });
@@ -98,7 +99,7 @@ export function CommentSection({ postId, commentCount = 0, onCountChange, myUser
   }
 
   async function reportComment(commentId: string) {
-    if (!requireAuth()) return;
+    if (!requireAuth(authNext)) return;
     const reasons = [social.reportReasonSpam, social.reportReasonAbuse, social.reportReasonOther];
     try {
       const picked = await Taro.showActionSheet({ itemList: reasons });

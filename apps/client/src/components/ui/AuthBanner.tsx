@@ -1,16 +1,17 @@
 import { View, Text } from "@tarojs/components";
-import Taro from "@tarojs/taro";
-import { STACK_PAGE_ROUTES } from "../../constants/routes";
 import { useLocale } from "@vibe-sorcery/i18n";
+import { requireAuth } from "../../utils/auth";
+import { hapticLight } from "../../utils/haptic";
 import { Button } from "./Button";
 import "./ui.scss";
 
 type Props = {
   message?: string;
   loginLabel?: string;
+  next?: string;
 };
 
-export function AuthBanner({ message, loginLabel }: Props) {
+export function AuthBanner({ message, loginLabel, next }: Props) {
   const { copy } = useLocale();
   const text = message ?? copy.settingsUi.authBanner;
   const label = loginLabel ?? copy.loginUi.login;
@@ -18,7 +19,14 @@ export function AuthBanner({ message, loginLabel }: Props) {
   return (
     <View className="ui-auth-banner">
       <Text className="ui-auth-banner__text">{text}</Text>
-      <Button size="sm" variant="primary" onClick={() => Taro.navigateTo({ url: STACK_PAGE_ROUTES.login })}>
+      <Button
+        size="sm"
+        variant="primary"
+        onClick={() => {
+          hapticLight();
+          requireAuth(next);
+        }}
+      >
         {label}
       </Button>
     </View>

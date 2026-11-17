@@ -6,6 +6,8 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
+import logging
+
 from fastapi import HTTPException
 
 _DEFAULT_PATTERNS: list[tuple[str, str, str]] = [
@@ -169,3 +171,77 @@ def moderate_profile_fields(
 
 def parse_mentions(content: str) -> list[str]:
     return list(dict.fromkeys(re.findall(r"@([a-zA-Z0-9_]{2,32})", content)))
+
+
+logger = logging.getLogger(__name__)
+
+
+async def audit_audio_content(audio_bytes: bytes, *, user_id: str | None = None) -> dict:
+    """Call external audio content moderation API.
+
+    Returns {"passed": bool, "reason": str | None, "provider": str}
+    """
+    from app.config import settings
+
+    if not settings.audio_moderation_api_url:
+        return {"passed": True, "reason": None, "provider": "none", "skipped": True}
+
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                settings.audio_moderation_api_url,
+                content=audio_bytes,
+                headers={
+                    "Authorization": f"Bearer {settings.audio_moderation_api_key}",
+                    "Content-Type": "audio/mpeg",
+                    "X-User-Id": user_id or "",
+                },
+            )
+            if resp.status_code < 400:
+                result = resp.json()
+                return {
+                    "passed": result.get("passed", True),
+                    "reason": result.get("reason"),
+                    "provider": "external",
+                    "labels": result.get("labels", []),
+                }
+    except Exception as exc:
+        logger.warning("Audio moderation API failed: %s", exc)
+
+    return {"passed": True, "reason": None, "provider": "fallback"}
+
+
+async def audit_lyrics_asr(audio_bytes: bytes) -> dict:
+    """Transcribe audio via ASR and run text moderation on the result."""
+    from app.config import settings
+
+    if not settings.asr_api_url:
+        return {"passed": True, "transcript": None, "provider": "none", "skipped": True}
+
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(
+                settings.asr_api_url,
+                content=audio_bytes,
+                headers={
+                    "Authorization": f"Bearer {settings.asr_api_key}",
+                    "Content-Type": "audio/mpeg",
+                },
+            )
+            if resp.status_code < 400:
+                result = resp.json()
+                transcript = result.get("text", "")
+                # Run text moderation on the transcript
+                text_result = moderate_text(transcript)
+                return {
+                    "passed": text_result.action != "block",
+                    "transcript": transcript[:2000],
+                    "text_issues": [text_result.reason] if text_result.action == "block" and text_result.reason else [],
+                    "provider": "asr",
+                }
+    except Exception as exc:
+        logger.warning("ASR moderation failed: %s", exc)
+
+    return {"passed": True, "transcript": None, "provider": "fallback"}

@@ -48,11 +48,11 @@ async function payWithVirtualPayment(productId: string, opts: PayOpts = {}) {
   const onIos = platform === "ios";
 
   if (onIos && isBelowIosMinPrice(opts.amountFen)) {
-    throw new Error("iOS 最低支付金额为 1 元，请选择其他额度包");
+    throw new Error("iOS 最低支付金额为 1 元，请换一个套餐");
   }
   // 已知测试价商品兜底（调用方未传 amountFen 时）
   if (onIos && productId === "pack_10" && opts.amountFen == null) {
-    throw new Error("iOS 最低支付金额为 1 元，请选择其他额度包");
+    throw new Error("iOS 最低支付金额为 1 元，请换一个套餐");
   }
 
   const { code } = await Taro.login();

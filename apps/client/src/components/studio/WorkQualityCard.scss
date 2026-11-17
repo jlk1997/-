@@ -5,6 +5,10 @@
   border: 1rpx solid var(--border);
   background: var(--surface);
 
+  &--quiet {
+    padding: 16rpx 20rpx;
+  }
+
   &__title {
     font-weight: 600;
     display: block;
@@ -26,5 +30,40 @@
     margin: 8rpx 0 12rpx;
     font-size: var(--text-meta);
     color: var(--muted);
+  }
+
+  .asset-lanes {
+    margin: 8rpx 0 16rpx;
+  }
+
+  &__risk {
+    display: flex;
+    align-items: center;
+    gap: 12rpx;
+    margin: 8rpx 0 16rpx;
+
+    .ui-progress-rail {
+      flex: 1;
+      min-width: 0;
+    }
+
+    &--hot {
+      .work-quality__risk-value {
+        color: var(--danger, #f87171);
+      }
+    }
+  }
+
+  &__risk-label {
+    font-size: var(--text-micro);
+    color: var(--muted);
+    flex-shrink: 0;
+  }
+
+  &__risk-value {
+    font-size: var(--text-micro);
+    color: var(--muted);
+    width: 48rpx;
+    text-align: right;
   }
 }

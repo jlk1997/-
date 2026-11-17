@@ -5,6 +5,14 @@
   max-height: calc(100vh - 80rpx);
 }
 
+.copilot-weapp-honesty {
+  display: block;
+  color: $muted;
+  font-size: var(--text-meta);
+  line-height: 1.5;
+  padding: 0 $space-xs $space-sm;
+}
+
 .copilot-header {
   display: flex;
   align-items: center;
@@ -24,7 +32,7 @@
     height: 72rpx;
     border-radius: $radius-pill;
     background: $gold-muted;
-    border: 1rpx solid $border-ritual;
+    border: 1rpx solid $border-subtle;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -63,7 +71,7 @@
     color: $gold;
     font-size: var(--text-meta);
     padding: $space-2xs $space-xs;
-    border: 1rpx solid $border-ritual;
+    border: 1rpx solid $border-subtle;
     border-radius: $radius-pill;
     background: $obsidian;
   }
@@ -80,7 +88,7 @@
   &__chip {
     padding: $space-2xs $space-xs;
     border-radius: $radius-pill;
-    border: 1rpx solid $border-ritual;
+    border: 1rpx solid $border-subtle;
     background: $obsidian;
     color: $gold;
     font-size: var(--text-meta);
@@ -104,7 +112,7 @@
   display: inline-flex;
   align-items: center;
   background: $obsidian;
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border-subtle;
   border-radius: $radius-pill;
   overflow: hidden;
 
@@ -147,7 +155,7 @@
   padding: $space-lg $space-md;
   border-radius: $radius-lg;
   background: linear-gradient(165deg, rgba(22, 22, 34, 0.6), rgba(14, 14, 22, 0.85));
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border-subtle;
   margin-bottom: $space-md;
 
   &__title {
@@ -185,7 +193,7 @@
 .copilot-prompt {
   padding: $space-xs $space-sm;
   background: $obsidian;
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border-subtle;
   border-radius: $radius-lg;
   color: $text;
   font-size: var(--text-meta);
@@ -243,7 +251,7 @@
   gap: $space-2xs;
   padding: $space-sm;
   background: $obsidian;
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border-subtle;
   border-radius: $radius-lg;
   box-shadow: $shadow-sm;
   flex-shrink: 0;

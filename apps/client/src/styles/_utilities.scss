@@ -6,8 +6,7 @@
   font-size: $text-micro;
   font-weight: $font-weight-semibold;
   font-family: var(--font-ui);
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  letter-spacing: 0.02em;
 }
 
 .typo-display {
@@ -78,7 +77,7 @@
   font-size: var(--text-meta);
   padding: $space-2xs $space-xs;
   background: $gold-muted;
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border;
   border-radius: $radius-pill;
   font-family: var(--font-ui);
 }

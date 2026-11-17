@@ -1,15 +1,21 @@
 import { useMemo, useState } from "react";
 import { View, Text } from "@tarojs/components";
-import Taro, { useRouter, useDidShow } from "@tarojs/taro";
+import Taro, { useRouter, useDidShow, useShareAppMessage } from "@tarojs/taro";
 import { useLocale } from "@vibe-sorcery/i18n";
 import { workToPlayerTrack } from "@vibe-sorcery/types";
 import { PageShell, SectionLabel } from "../../../components/PageShell";
 import { LeaderboardEntry } from "../../../components/community/LeaderboardEntry";
-import { BottomSheet, Button, EmptyState, ImmersiveCover, LoadingSkeleton, StatPill } from "../../../components/ui";
+import { BottomSheet, Button, EmptyState, ImmersiveCover, LoadingSkeleton, ShareButton, StatPill } from "../../../components/ui";
 import { vibeApi } from "../../../services/api";
-import { bootstrapAuth, requireAuth } from "../../../utils/auth";
+import { bootstrapAuth, isLoggedIn, requireAuth } from "../../../utils/auth";
 import { useCreditsOptional } from "../../../contexts/CreditsProvider";
 import { setItem } from "../../../platform/storage";
+import { openWorkForOwner } from "../../../utils/workNav";
+import { stackPage } from "../../../constants/routes";
+import { goShipBand } from "../../../packageCreator/nextActionNav";
+import { captureReferralFromQuery, myReferralCode } from "../../../platform/referral";
+import { sharePage } from "../../../platform/share";
+import { startSameStyle } from "../../../utils/sameStyleNav";
 import "./index.scss";
 
 type ChallengeData = Awaited<ReturnType<typeof vibeApi.getChallenge>>;
@@ -26,7 +32,13 @@ export default function ChallengeDetailPage() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [works, setWorks] = useState<Array<{ id: string; title: string }>>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [mineIds, setMineIds] = useState<Set<string>>(new Set());
   const creditsCtx = useCreditsOptional();
+
+  useShareAppMessage(() => ({
+    title: challenge?.title || cd.pageTitleFallback,
+    path: stackPage("challenge", { slug, ref: myReferralCode() || undefined }),
+  }));
 
   async function reload() {
     if (!slug) return;
@@ -54,11 +66,18 @@ export default function ChallengeDetailPage() {
   }
 
   useDidShow(async () => {
+    captureReferralFromQuery(router.params as Record<string, unknown>);
     if (!slug) return;
     bootstrapAuth();
     setLoading(true);
     try {
       await reload();
+      if (!isLoggedIn()) {
+        setMineIds(new Set());
+      } else {
+        const list = await vibeApi.listWorks().catch(() => []);
+        setMineIds(new Set(list.map((w) => w.id)));
+      }
     } catch {
       Taro.showToast({ title: cd.loadFail, icon: "none" });
     } finally {
@@ -73,14 +92,14 @@ export default function ChallengeDetailPage() {
         .map((e) =>
           workToPlayerTrack(
             { id: e.work_id, title: e.title, audio_url: e.audio_url!, hls_url: e.hls_url, moods: e.moods },
-            { artist: e.author, source: "challenge" }
+            { artist: e.author, source: "challenge", isOwner: mineIds.has(e.work_id) }
           )
         ),
-    [entries]
+    [entries, mineIds]
   );
 
   async function openWorkPicker() {
-    if (!requireAuth()) return;
+    if (!requireAuth(stackPage("challenge", { slug }))) return;
     try {
       const list = await vibeApi.listWorks();
       if (!list.length) {
@@ -137,7 +156,25 @@ export default function ChallengeDetailPage() {
   const hashtag = challenge?.hashtag || "";
 
   return (
-    <PageShell label={copy.navGroups.community} title={title} subtitle={hashtag} wide immersive noPadTop ambient>
+    <PageShell
+      label={copy.navGroups.community}
+      title={title}
+      subtitle={hashtag}
+      wide
+      immersive
+      noPadTop
+      ambient
+      actions={
+        <ShareButton
+          className="ui-btn ui-btn--ghost ui-btn--sm"
+          onShare={() =>
+            sharePage(title, stackPage("challenge", { slug, ref: myReferralCode() || undefined }))
+          }
+        >
+          {copy.player.share}
+        </ShareButton>
+      }
+    >
       <ImmersiveCover coverUrl={challenge?.cover_url} height="320rpx">
         {challenge?.description && <Text className="challenge-hero__desc">{challenge.description}</Text>}
         <View className="challenge-hero__stats">
@@ -159,7 +196,14 @@ export default function ChallengeDetailPage() {
 
       <SectionLabel>{cd.leaderboard}</SectionLabel>
       {loading && <LoadingSkeleton count={4} variant="line" />}
-      {!loading && entries.length === 0 && <EmptyState iconName="flag" title={cd.emptyEntriesShort} />}
+      {!loading && entries.length === 0 && (
+        <EmptyState
+          iconName="flag"
+          title={cd.emptyEntriesShort}
+          actionLabel={copy.challengesUi.rowCta}
+          onAction={() => Taro.navigateTo({ url: stackPage("challenges") })}
+        />
+      )}
       {entries.map((e, i) => (
         <LeaderboardEntry
           key={e.work_id}
@@ -173,14 +217,35 @@ export default function ChallengeDetailPage() {
             e.audio_url
               ? workToPlayerTrack(
                   { id: e.work_id, title: e.title, audio_url: e.audio_url, hls_url: e.hls_url, moods: e.moods },
-                  { artist: e.author, source: "challenge" }
+                  { artist: e.author, source: "challenge", isOwner: mineIds.has(e.work_id) }
                 )
               : undefined
           }
           queue={playQueue}
-          onClick={() => Taro.navigateTo({ url: `/pages/provenance/index?workId=${e.work_id}` })}
+          onClick={() => openWorkForOwner(e.work_id, mineIds.has(e.work_id))}
+          actionLabel={copy.derivative.startSameStyle}
+          onAction={() => startSameStyle(e.work_id, e.title)}
         />
       ))}
+      {challenge?.awards_distributed &&
+        entries.slice(0, 3).some((row) => mineIds.has(row.work_id)) && (
+          <View className="challenge-actions">
+            {entries.slice(0, 3).map((row, idx) =>
+              mineIds.has(row.work_id) ? (
+                <Button
+                  key={row.work_id}
+                  variant="primary"
+                  block
+                  onClick={() =>
+                    goShipBand(row.work_id)
+                  }
+                >
+                  {`${cd.winnerCta} · #${idx + 1}`}
+                </Button>
+              ) : null,
+            )}
+          </View>
+        )}
 
       <View className="challenge-actions">
         <Button variant="primary" block loading={submitting} onClick={openWorkPicker}>

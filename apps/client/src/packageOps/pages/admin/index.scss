@@ -16,7 +16,7 @@
 
 .admin-tab--active {
   color: $gold;
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border-subtle;
   background: $gold-muted;
 }
 
@@ -29,7 +29,7 @@
   flex: 1;
   padding: $space-sm;
   background: $obsidian;
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border-subtle;
   border-radius: $radius-lg;
   text-align: center;
   color: $muted;
@@ -53,10 +53,15 @@
   padding: $space-xs;
   margin-bottom: $space-2xs;
   background: $obsidian;
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border-subtle;
   border-radius: $radius-md;
   color: $text;
   font-size: var(--text-meta);
+}
+
+.admin-row--stack {
+  flex-direction: column;
+  align-items: stretch;
 }
 
 .admin-row__status {
@@ -75,6 +80,12 @@
   color: $muted;
   font-size: var(--text-micro);
   margin-top: 4rpx;
+}
+
+.admin-row__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $space-2xs;
 }
 
 .admin-funnel__title {
@@ -96,7 +107,7 @@
   justify-content: space-between;
   padding: $space-xs $space-sm;
   background: $obsidian;
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border-subtle;
   border-radius: $radius-md;
 }
 

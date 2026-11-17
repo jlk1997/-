@@ -1,0 +1,31 @@
+from app.services.seats.service import (
+    connect_user_seat,
+    enqueue_delivery_upload,
+    enqueue_job,
+    ensure_platform_seats,
+    warmup_platform_pool,
+    lease_jobs,
+    list_pending_jobs,
+    list_seats,
+    pick_platform_seat,
+    resolve_runtime_seat,
+    save_seat_session,
+    seat_ownership_for,
+    serialize_seat,
+)
+
+__all__ = [
+    "connect_user_seat",
+    "enqueue_delivery_upload",
+    "enqueue_job",
+    "ensure_platform_seats",
+    "warmup_platform_pool",
+    "lease_jobs",
+    "list_pending_jobs",
+    "list_seats",
+    "pick_platform_seat",
+    "resolve_runtime_seat",
+    "save_seat_session",
+    "seat_ownership_for",
+    "serialize_seat",
+]

@@ -13,9 +13,10 @@ type Item = {
 type Props = {
   items: Item[];
   unit?: string;
+  formatPrice?: (price: number) => string;
 };
 
-export function CreditBarChart({ items, unit = "" }: Props) {
+export function CreditBarChart({ items, unit = "", formatPrice }: Props) {
   const max = Math.max(...items.map((i) => i.credits), 1);
 
   return (
@@ -29,7 +30,9 @@ export function CreditBarChart({ items, unit = "" }: Props) {
               <Text className="ui-credit-chart__value">
                 {item.credits}
                 {unit ? ` ${unit}` : ""}
-                {item.price != null && <Text className="ui-credit-chart__price"> · ¥{item.price}</Text>}
+                {item.price != null && (
+                  <Text className="ui-credit-chart__price"> · {formatPrice ? formatPrice(item.price) : `¥${item.price}`}</Text>
+                )}
               </Text>
             </View>
             <View className="ui-credit-chart__track">

@@ -24,8 +24,8 @@ export function phaseIndex(phase: string | null | undefined): number {
   return idx >= 0 ? idx : 0;
 }
 
-/** Map backend phase to 7-step ritual timeline index (0–6). */
-export function ritualStepIndex(phase: string | null | undefined): number {
+/** Map backend phase to 7-step progress timeline index (0–6). */
+export function progressStepIndex(phase: string | null | undefined): number {
   if (!phase) return 0;
   if (phase.startsWith("track_")) return 2;
   switch (phase) {
@@ -36,6 +36,7 @@ export function ritualStepIndex(phase: string | null | undefined): number {
     case "composing":
       return 2;
     case "saving":
+    case "rendering":
       return 3;
     case "audio_ready":
       return 4;
@@ -56,6 +57,7 @@ export function phaseLabelKey(phase: string | null | undefined): string {
   if (!phase) return "queued";
   if (phase.startsWith("track_")) return "track";
   if (phase === "post_processing") return "post_processing";
+  if (phase === "rendering") return "rendering";
   if (SINGLE_PHASE_ORDER.includes(phase as (typeof SINGLE_PHASE_ORDER)[number])) return phase;
   return "queued";
 }
@@ -70,14 +72,20 @@ export function isActiveJobStatus(status: string) {
   return status === "pending" || status === "running" || status === "audio_ready" || status === "post_processing";
 }
 
-/** Ignore transient poll/transport glitches that should not surface as job failure in UI. */
+/** Ignore transient poll/transport glitches. A failed job with a real error code stays visible. */
 export function isSpuriousJobFailure(data: {
   status: string;
   progress?: number;
   error_message?: string;
+  error_code?: string | null;
   startedMsAgo?: number;
+  trackerClosed?: boolean;
 }) {
+  // The tracker already stopped on this update. Swallowing it leaves a spinner forever.
+  if (data.trackerClosed) return false;
   if (data.status !== "failed") return false;
+  const code = (data.error_code || "").trim();
+  if (code && code !== "NETWORK_TIMEOUT") return false;
   const msg = (data.error_message || "").toLowerCase();
   if (
     msg.includes("poll failed") ||
@@ -88,7 +96,7 @@ export function isSpuriousJobFailure(data: {
   ) {
     return true;
   }
-  if ((data.progress || 0) === 0 && (data.startedMsAgo ?? 999_999) < 5000) {
+  if (!code && (data.progress || 0) === 0 && (data.startedMsAgo ?? 999_999) < 5000) {
     return true;
   }
   return false;

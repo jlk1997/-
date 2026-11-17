@@ -16,7 +16,7 @@
   padding: $space-sm;
   background: $obsidian;
   border-radius: $radius-lg;
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border-subtle;
   box-shadow: $shadow-sm;
   position: relative;
   overflow: hidden;
@@ -35,9 +35,32 @@
   }
 }
 
-.presets__card--locked {
-  opacity: 0.72;
-  filter: grayscale(0.2);
+.presets__cover {
+  width: 100%;
+  height: 112rpx;
+  border-radius: 12rpx;
+  background: linear-gradient(160deg, #3d2b24, #17171c);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.presets__cover--1 { background: linear-gradient(160deg, #24344a, #141820); }
+.presets__cover--2 { background: linear-gradient(160deg, #2a3a2e, #141816); }
+.presets__cover--3 { background: linear-gradient(160deg, #3a2a3d, #18141c); }
+.presets__cover--4 { background: linear-gradient(160deg, #3a3424, #18160f); }
+.presets__cover--5 { background: linear-gradient(160deg, #243a3a, #101616); }
+
+.presets--compact .presets__card {
+  flex-basis: 160rpx;
+  padding: $space-xs $space-2xs;
+}
+
+.presets__card--shop {
+  justify-content: center;
+  border-style: dashed;
+  border-color: rgba(212, 175, 106, 0.35);
+  background: rgba(212, 175, 106, 0.06);
 }
 
 .presets__member {

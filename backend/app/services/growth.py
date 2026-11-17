@@ -46,6 +46,9 @@ def apply_referral_on_signup(db: Session, user: User, referral_code: str | None)
     if not code:
         return None
 
+    if user.referred_by_id:
+        return None
+
     referrer = db.query(User).filter(User.referral_code == code).first()
     if not referrer or referrer.id == user.id:
         return None
@@ -83,6 +86,39 @@ def apply_referral_on_signup(db: Session, user: User, referral_code: str | None)
     }
 
 
+def find_lapsed_users(db: Session, days: int) -> list:
+    """Users whose last *creation* was `days` ago (±1 day). Listen-only activity does not count."""
+    from datetime import datetime, timedelta
+
+    from sqlalchemy import exists, func, or_
+
+    from app.models.schemas import WeChatUser, Work
+    from app.services.notify_prefs import get_notify_prefs
+
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    window_start = cutoff - timedelta(days=1)
+
+    subq = (
+        db.query(
+            Work.owner_id.label("user_id"),
+            func.max(Work.created_at).label("last_made"),
+        )
+        .group_by(Work.owner_id)
+        .subquery()
+    )
+
+    has_wechat = exists().where(WeChatUser.user_id == User.id)
+    users = (
+        db.query(User)
+        .join(subq, User.id == subq.c.user_id)
+        .filter(subq.c.last_made.between(window_start, cutoff))
+        .filter(or_(User.email.isnot(None), has_wechat))
+        .limit(200)
+        .all()
+    )
+    return [user for user in users if get_notify_prefs(db, user.id).get("recall", True)]
+
+
 def get_referral_stats(db: Session, user: User) -> dict:
     had_code = bool(user.referral_code)
     code = ensure_referral_code(db, user)
@@ -107,5 +143,5 @@ def get_referral_stats(db: Session, user: User) -> dict:
         "credits_earned": credits_earned,
         "referrer_reward": settings.referral_credits_referrer,
         "invitee_reward": settings.referral_credits_invitee,
-        "share_url": f"/pages/login/index?ref={code}",
+        "share_url": f"/pages/feed/index?ref={code}",
     }

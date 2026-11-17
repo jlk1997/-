@@ -1,4 +1,9 @@
 /** 全局事件名（Taro.eventCenter）。 */
+export const AUTH_EVENTS = {
+  login: "vs:auth:login",
+  logout: "vs:auth:logout",
+} as const;
+
 export const NOW_PLAYING_EVENTS = {
   /** 进入「正在播放」全屏页 —— 隐藏底部迷你播放条。 */
   enter: "vs:now-playing:enter",

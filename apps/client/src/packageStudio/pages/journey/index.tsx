@@ -12,6 +12,7 @@ import { CommercialAlertBanners } from "../../../components/commercial/Commercia
 import { AudioAnchorPanel } from "../../../components/studio/AudioAnchorPanel";
 import { SoundRecipePanel } from "../../../components/studio/SoundRecipePanel";
 import {
+  AuthBanner,
   Button,
   ChipGroup,
   Collapsible,
@@ -23,17 +24,20 @@ import {
   UsageMeter,
 } from "../../../components/ui";
 import { vibeApi, isInsufficientCredits } from "../../../services/api";
-import { bootstrapAuth, requireAuth } from "../../../utils/auth";
+import { bootstrapAuth, isLoggedIn, requireAuth } from "../../../utils/auth";
+import { STUDIO_PAGE_ROUTES } from "../../../constants/routes";
 import { useCreditsOptional } from "../../../contexts/CreditsProvider";
 import { applyCreditsResponse, ensureSufficientCredits, taskCreditsGranted } from "../../../utils/creditsSync";
 import type { EmotionAnalysis } from "../../../platform/upload";
 import { pickAudioFile, uploadPlaylistForm } from "../../../platform/upload";
 import { setItem, getItem, removeItem } from "../../../platform/storage";
-import { isJourneyGuideCollapsed, setJourneyGuideCollapsed } from "../../../utils/onboarding";
+import { setJourneyGuideCollapsed } from "../../../utils/onboarding";
 import { buildPayloadSpec, STUDIO_CREATIVE_SPEC_KEY } from "../../../utils/creativeSpec";
 import { CoachMarks } from "../../../components/onboarding/CoachMarks";
 import { useStudioTabBarLayout } from "../../../hooks/useStudioTabBarLayout";
 import "./index.scss";
+
+const JOURNEY_NEXT = STUDIO_PAGE_ROUTES.journey;
 
 const SCENE_CURVES = {
   tired: "calm_to_energy",
@@ -106,7 +110,7 @@ export default function JourneyPage() {
   const [soundRecipeOptions, setSoundRecipeOptions] = useState<SoundRecipeOptions | null>(null);
   const [keyOptions, setKeyOptions] = useState<string[]>(["auto"]);
   const [bpmPresets, setBpmPresets] = useState<Array<{ label: string; range: [number, number] }>>([]);
-  const [guideExpanded, setGuideExpanded] = useState(() => !isJourneyGuideCollapsed());
+  const [guideExpanded, setGuideExpanded] = useState(false);
 
   const selectedScene = scenes.find((s) => s.id === selectedSceneId) ?? scenes[0];
 
@@ -221,7 +225,7 @@ export default function JourneyPage() {
   }
 
   async function generate(scene?: Scene) {
-    if (!requireAuth()) return;
+    if (!requireAuth(JOURNEY_NEXT)) return;
     if (!(await ensureSufficientCredits(creditsCtx, journeyCredits, openPaywall))) return;
     const intent = customIntent.trim() || scene?.intent || "";
     if (!intent && !scene) {
@@ -259,7 +263,7 @@ export default function JourneyPage() {
   }
 
   async function generateFromAudio() {
-    if (!requireAuth()) return;
+    if (!requireAuth(JOURNEY_NEXT)) return;
     if (!(await ensureSufficientCredits(creditsCtx, journeyCredits, openPaywall))) return;
     try {
       const file = await pickAudioFile();
@@ -328,6 +332,7 @@ export default function JourneyPage() {
     <PageShell title={copy.pages.journey.title} ambient immersive wide hideHeader noPadTop>
       <View className="journey-page">
         <CommercialAlertBanners subscription={subscription} />
+        {!isLoggedIn() && <AuthBanner message={j.authBanner} loginLabel={copy.loginUi.login} next={JOURNEY_NEXT} />}
         <View className="journey-header">
           <View className="journey-header__back" onClick={goBack}>
             <Icon name="chevronLeft" size="sm" accent />
@@ -447,7 +452,6 @@ export default function JourneyPage() {
             <SectionLabel>{j.intentLabel}</SectionLabel>
             <Text className="journey-hint">{j.intentHint}</Text>
             <HeroPrompt
-              variant="ritual"
               value={customIntent}
               placeholder={j.intentPlaceholder}
               onInput={setCustomIntent}

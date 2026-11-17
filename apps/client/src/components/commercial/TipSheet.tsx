@@ -4,6 +4,7 @@ import Taro from "@tarojs/taro";
 import { useLocale } from "@vibe-sorcery/i18n";
 import { vibeApi } from "../../services/api";
 import { requireAuth } from "../../utils/auth";
+import { stackPage } from "../../constants/routes";
 import { useCreditsOptional } from "../../contexts/CreditsProvider";
 import { BottomSheet, Button, ChipGroup, CreditsPaywallSheet, Input } from "../ui";
 import "./TipSheet.scss";
@@ -38,7 +39,7 @@ export function TipSheet({ open, workId, workTitle, onClose, onDone }: Props) {
   const balance = creditsCtx?.balance ?? 0;
 
   async function submit() {
-    if (!requireAuth()) return;
+    if (!requireAuth(stackPage("work", { workId, play: "1" }))) return;
     if (balance < amount) {
       setPaywallOpen(true);
       return;

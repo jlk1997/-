@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>比特音连接器工作台</title>
+    <style>
+      :root {
+        --ink: #1b1b1b;
+        --muted: #5b5b5b;
+        --line: #e6e1d8;
+        --ok: #0a7a32;
+        --err: #b42318;
+        --accent: #5b3cc4;
+        --bg: #f7f4ee;
+      }
+      body {
+        font: 15px/1.5 "Segoe UI", "PingFang SC", sans-serif;
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+      }
+      main { max-width: 760px; margin: 0 auto; padding: 28px 20px 48px; }
+      h1 { font-size: 22px; margin: 0 0 8px; }
+      button {
+        padding: 8px 12px;
+        border: 1px solid #cfc6b5;
+        border-radius: 8px;
+        background: #fff;
+        cursor: pointer;
+      }
+      button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+      .coach, .card {
+        background: #fff;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 14px 16px;
+        margin-top: 14px;
+      }
+      .coach.busy { border-color: var(--accent); }
+      .coach.ok { border-color: #b7dfc4; }
+      .coach.err { border-color: #f0b8b4; }
+      .hint { color: var(--muted); font-size: 13px; }
+      .ok { color: var(--ok); }
+      .err { color: var(--err); }
+      .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+      .stores { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+      .log div { font-size: 13px; margin: 4px 0; }
+      .seat { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); }
+      .seat:first-child { border-top: 0; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>比特音连接器工作台</h1>
+      <p class="hint">这个页会一直开着。收割时这里会滚动记录；关掉弹层也不影响。Chrome 开着才会自动对账。</p>
+      <div id="coach" class="coach need">
+        <b id="coachTitle">正在读取状态…</b>
+        <p id="coachHint" class="hint"></p>
+      </div>
+      <div class="row">
+        <button id="poll" class="primary">马上同步 / 收割</button>
+        <button id="pair">从剪贴板配对</button>
+        <button id="openApp">打开比特音账户</button>
+        <button id="unpair">断开配对</button>
+        <button id="selfTest">打开本机夹具</button>
+      </div>
+      <div class="card">
+        <b>打开已登录的店</b>
+        <p class="hint">先在官方页登录。扩展不填密码、不点发布。</p>
+        <div class="stores" id="stores"></div>
+      </div>
+      <div class="card">
+        <b>席位任务</b>
+        <p class="hint">只走座位队列。这里只读，不抢任务。</p>
+        <div id="queue"></div>
+      </div>
+      <div class="card">
+        <b>席位</b>
+        <div id="seats"></div>
+      </div>
+      <div class="card">
+        <b>上次收割</b>
+        <div id="lastHarvest" class="hint">还没有</div>
+      </div>
+      <div class="card">
+        <b>活动记录</b>
+        <div id="log" class="log hint">还没有记录</div>
+      </div>
+    </main>
+    <script src="ui-shared.js"></script>
+    <script src="desk.js"></script>
+  </body>
+</html>

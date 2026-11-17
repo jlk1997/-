@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.models.schemas import CreditTransaction, User, WeChatUser
-from app.services.auth import create_access_token, hash_password
+from app.services.auth import assert_account_login_allowed, create_access_token, hash_password
 from app.services.cache import cache_get, cache_set
 from app.services.credits import add_credits
 from app.services.payment_orders import complete_paid_order, mark_order_paid, register_pending_order
@@ -29,6 +29,7 @@ async def login_with_code(
     *,
     terms_version: str | None = None,
     privacy_version: str | None = None,
+    referral_code: str | None = None,
     request=None,
 ) -> dict:
     """Exchange wx.login code for JWT. Uses mock openid when WeChat not configured."""
@@ -38,11 +39,15 @@ async def login_with_code(
         user = db.query(User).filter(User.id == link.user_id).first()
         if not user:
             raise HTTPException(status_code=500, detail="WeChat user link broken")
+        assert_account_login_allowed(user)
         if terms_version and privacy_version:
             from app.services.legal import apply_registration_consents
 
             apply_registration_consents(db, user, terms_version, privacy_version, request=request)
-            db.commit()
+        from app.services.royalty.wallet import ensure_wechat_payout_account
+
+        ensure_wechat_payout_account(db, user, openid)
+        db.commit()
         token = create_access_token(str(user.id))
         return {"access_token": token, "token_type": "bearer", "user_id": str(user.id)}
 
@@ -51,7 +56,7 @@ async def login_with_code(
     existing = db.query(User).filter(User.username == username).first()
     is_new = False
     if existing:
-        user = existing
+        user = assert_account_login_allowed(existing)
     else:
         is_new = True
         user = User(
@@ -65,6 +70,10 @@ async def login_with_code(
         from app.services.credits import grant_welcome_credits
 
         grant_welcome_credits(db, user.id)
+        from app.services.growth import apply_referral_on_signup, ensure_referral_code
+
+        apply_referral_on_signup(db, user, referral_code)
+        ensure_referral_code(db, user)
 
     if is_new or (terms_version and privacy_version):
         from app.services.legal import apply_registration_consents, require_registration_consents
@@ -75,6 +84,9 @@ async def login_with_code(
 
     if not link:
         db.add(WeChatUser(user_id=user.id, openid=openid))
+    from app.services.royalty.wallet import ensure_wechat_payout_account
+
+    ensure_wechat_payout_account(db, user, openid)
     db.commit()
     token = create_access_token(str(user.id))
     return {"access_token": token, "token_type": "bearer", "user_id": str(user.id)}

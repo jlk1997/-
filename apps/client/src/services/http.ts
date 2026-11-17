@@ -53,6 +53,7 @@ export function installHttpAdapter() {
         method: method as keyof Taro.request.Method,
         header,
         data,
+        timeout: 12_000,
         responseType: method === "GET" && url.includes("/export") ? "arraybuffer" : "text",
       });
       const status = res.statusCode;
@@ -75,8 +76,13 @@ export function installHttpAdapter() {
         },
       } as HttpResponse;
     } catch (err) {
+      const name = err && typeof err === "object" && "name" in err ? String((err as { name?: string }).name) : "";
+      const message = err instanceof Error ? err.message : String(err);
+      if (name === "AbortError" || /abort/i.test(message)) {
+        throw err instanceof Error ? err : new Error(message);
+      }
       console.error("[http] request failed:", method, url, err);
-      throw err instanceof Error ? err : new Error(String(err));
+      throw err instanceof Error ? err : new Error(message);
     }
   });
 }

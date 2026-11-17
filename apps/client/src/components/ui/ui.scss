@@ -22,10 +22,13 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
   gap: 8rpx;
   padding: 22rpx 36rpx;
   border-radius: $radius-full;
   font-size: 28rpx;
+  min-height: 88rpx;
   font-weight: 600;
   font-family: var(--font-ui);
   border: none;
@@ -44,14 +47,15 @@
   &--sm {
     padding: 14rpx 24rpx;
     font-size: 24rpx;
+    min-height: 88rpx;
     border-radius: $radius-md;
   }
 
   &--primary {
-    background: linear-gradient(135deg, #e8c98a 0%, $gold 50%, #b8944f 100%) !important;
+    background: $gold !important;
     color: $void !important;
-    border: 1rpx solid rgba(212, 175, 106, 0.4) !important;
-    box-shadow: $shadow-gold, inset 0 1rpx 0 rgba(255, 255, 255, 0.2);
+    border: 1rpx solid $gold !important;
+    box-shadow: none;
     font-family: var(--font-ui);
   }
 
@@ -103,7 +107,7 @@
 
 .ui-card {
   background: $obsidian;
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border;
   border-radius: $radius-lg;
   padding: $space-sm;
   box-shadow: $shadow-sm;
@@ -239,7 +243,7 @@
   font-size: 22rpx;
   color: $muted;
   background: $obsidian;
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border;
 }
 
 .ui-chip-group {
@@ -255,14 +259,12 @@
   font-size: 24rpx;
   color: $muted;
   background: $obsidian;
-  border: 1rpx solid $border-ritual;
-  backdrop-filter: blur(8px);
+  border: 1rpx solid $border;
 
   &--active {
     color: $gold;
-    border-color: $border-ritual;
+    border-color: $gold;
     background: $gold-muted;
-    box-shadow: $shadow-gold;
   }
 }
 
@@ -271,16 +273,15 @@
   padding: $space-2xl $space-sm;
 
   &__orb {
-    width: 120rpx;
-    height: 120rpx;
+    width: 160rpx;
+    height: 160rpx;
     margin: 0 auto $space-sm;
-    border-radius: $radius-pill;
-    background: radial-gradient(circle at 30% 30%, $gold-muted, $obsidian);
-    border: 1rpx solid $border-ritual;
+    border-radius: $radius-md;
+    background: $slate-veil;
+    border: 1rpx solid $border;
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: $shadow-gold;
   }
 
   &__icon {
@@ -339,8 +340,8 @@
   justify-content: space-between;
   gap: $space-sm;
   padding: $space-sm $space-md;
-  background: $gold-muted;
-  border: 1rpx solid $border-ritual;
+  background: $obsidian;
+  border: 1rpx solid $border;
   border-radius: $radius-lg;
   margin-bottom: $space-sm;
 
@@ -407,6 +408,23 @@
   &--loading {
     color: $accent;
     background: $accent-muted;
+  }
+
+  &--warning {
+    color: $gold;
+    background: $gold-muted;
+  }
+
+  &--tap {
+    cursor: pointer;
+  }
+
+  &--quiet {
+    padding: 0;
+    margin-top: $space-2xs;
+    background: transparent;
+    color: $muted;
+    font-size: var(--text-meta);
   }
 }
 

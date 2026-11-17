@@ -14,6 +14,7 @@ class WeChatLoginRequest(BaseModel):
     code: str = Field(min_length=1)
     accepted_terms_version: str | None = None
     accepted_privacy_version: str | None = None
+    referral_code: str | None = Field(default=None, max_length=24)
 
 
 @router.post("/login")
@@ -28,6 +29,7 @@ async def wechat_login(payload: WeChatLoginRequest, request: Request, db: Sessio
         payload.code,
         terms_version=payload.accepted_terms_version,
         privacy_version=payload.accepted_privacy_version,
+        referral_code=payload.referral_code,
         request=request,
     )
     return result

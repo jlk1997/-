@@ -1,0 +1,47 @@
+.song-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+  margin-top: 16rpx;
+}
+
+.song-setup__group,
+.song-setup__hints {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12rpx;
+}
+
+.song-setup__label,
+.song-setup__hint {
+  flex: 0 1 auto;
+  font-size: 24rpx;
+  line-height: 1.45;
+  opacity: 0.78;
+}
+
+.song-setup__label {
+  flex: 0 0 auto;
+  min-width: 4em;
+}
+
+.song-setup__row {
+  display: flex;
+  flex: 1 1 180px;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  align-items: center;
+}
+
+.song-setup__chip {
+  min-height: 64rpx;
+  padding: 10rpx 20rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 26rpx;
+}
+
+.song-setup__chip--on {
+  background: rgba(120, 180, 255, 0.28);
+}

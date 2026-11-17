@@ -66,6 +66,6 @@ Write-Host "API:  http://localhost:8000/docs" -ForegroundColor Green
 Write-Host "Ensure Docker infra is running: .\scripts\start-infra.ps1  (only postgres + redis + minio)" -ForegroundColor Yellow
 Write-Host "API / Celery worker / beat / frontend run locally in separate windows — no Docker worker needed." -ForegroundColor DarkGray
 Write-Host "IMPORTANT: If generation stays on 'queued' or times out, confirm the Celery worker window is running (run-worker.ps1)." -ForegroundColor Yellow
-Write-Host "Worker must listen to queues: celery,priority,post_process (Windows solo dev)" -ForegroundColor DarkGray
+Write-Host "Worker must listen to queues: celery,priority,post_process,distribution,analytics,settlement (Windows solo)" -ForegroundColor DarkGray
 Write-Host "Docker/Linux: split generation (celery,priority) and post_process workers for better throughput." -ForegroundColor DarkGray
 Write-Host "Windows: worker + beat are separate windows (Celery does not support -B on Windows)." -ForegroundColor DarkGray

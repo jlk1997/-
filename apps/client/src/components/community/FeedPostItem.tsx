@@ -8,15 +8,17 @@ import { CommentSection } from "./CommentSection";
 import { PublicTipsStrip } from "./PublicTipsStrip";
 import type { FeedPost } from "../../services/api";
 import { canRemixWork } from "../../utils/remixLicense";
+import { startSameStyle } from "../../utils/sameStyleNav";
 import { useLocale } from "@vibe-sorcery/i18n";
 
 function formatRecommendReason(
   code: string | undefined,
-  labels: { recommendFollowing: string; recommendMood: string; recommendGenre: string; recommendSimilar: string }
+  labels: { recommendFollowing: string; recommendMood: string; recommendGenre: string; recommendSimilar: string; recommendHeat: string }
 ): string | undefined {
   if (!code) return undefined;
   if (code === "following") return labels.recommendFollowing;
   if (code === "similar_taste") return labels.recommendSimilar;
+  if (code === "heat") return labels.recommendHeat;
   if (code.startsWith("mood:")) return labels.recommendMood.replace("{tag}", code.slice(5));
   if (code.startsWith("genre:")) return labels.recommendGenre.replace("{tag}", code.slice(6));
   return undefined;
@@ -47,7 +49,7 @@ export const FeedPostItem = memo(function FeedPostItem({
   collected,
   commentsOpen,
   highlighted = false,
-  loggedIn,
+  loggedIn: _loggedIn,
   onLike,
   onCollect,
   onRemix,
@@ -60,7 +62,11 @@ export const FeedPostItem = memo(function FeedPostItem({
   const { copy } = useLocale();
   const workId = p.work?.id;
   const track = p.work?.audio_url
-    ? workToPlayerTrack(p.work, { artist: p.author_username, source: "feed" })
+    ? workToPlayerTrack(p.work, {
+        artist: p.author_username,
+        source: "feed",
+        isOwner: myUsername ? p.author_username === myUsername : undefined,
+      })
     : undefined;
 
   return (
@@ -84,6 +90,7 @@ export const FeedPostItem = memo(function FeedPostItem({
         queue={playQueue}
         onLike={() => onLike(p.id)}
         onCollect={workId ? () => onCollect(workId) : undefined}
+        onSameStyle={workId ? () => startSameStyle(workId, p.work!.title || p.caption) : undefined}
         onRemix={
           workId && p.work && canRemixWork(p.work)
             ? () => onRemix(workId, p.work!.title || p.caption)
@@ -101,6 +108,10 @@ export const FeedPostItem = memo(function FeedPostItem({
         isAiGenerated={p.work?.is_ai_generated !== false}
         remixParentTitle={p.work?.parent_work_title || undefined}
         recommendLabel={formatRecommendReason(p.recommend_reason, copy.discoverUi)}
+        liveStores={p.work?.live_stores}
+        releaseStatus={p.work?.release_status}
+        isOwner={Boolean(myUsername && p.author_username && p.author_username === myUsername)}
+        authNext="/pages/feed/index"
         onRemixParentClick={
           p.work?.parent_work_id
             ? () => Taro.navigateTo({ url: `/pages/provenance/index?workId=${p.work!.parent_work_id}` })
@@ -108,9 +119,15 @@ export const FeedPostItem = memo(function FeedPostItem({
         }
       />
       {workId ? <PublicTipsStrip workId={workId} /> : null}
-      {loggedIn && commentsOpen && (
+      {commentsOpen && (
         <View className="feed-comments">
-          <CommentSection postId={p.id} commentCount={p.comment_count} myUsername={myUsername} myUserId={myUserId} />
+          <CommentSection
+            postId={p.id}
+            commentCount={p.comment_count}
+            myUsername={myUsername}
+            myUserId={myUserId}
+            authNext="/pages/feed/index"
+          />
         </View>
       )}
     </View>

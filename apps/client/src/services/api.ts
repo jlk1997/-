@@ -3,6 +3,8 @@ export {
   vibeApi,
   setAuthToken,
   getAuthToken,
+  setClientSurface,
+  getClientSurface,
   ApiError,
   generateIdempotencyKey,
   isActiveJobLimit,
@@ -11,7 +13,9 @@ export {
   getRateLimitRetryAfter,
   isInsufficientCredits,
   isRemixForbidden,
+  isAlreadyPublished,
   isUnauthorized,
+  isNeedsAuth,
   API_BASE,
 } from "@vibe-sorcery/api-client";
 export type { Work, FeedPost } from "@vibe-sorcery/api-client";

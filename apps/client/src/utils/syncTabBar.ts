@@ -7,7 +7,8 @@ export function syncTabBarLocale(locale: Locale) {
     { index: 0, text: t.create },
     { index: 1, text: t.feed },
     { index: 2, text: t.library },
-    { index: 3, text: t.profile },
+    { index: 3, text: t.creator },
+    { index: 4, text: t.profile },
   ];
   items.forEach(({ index, text }) => {
     Taro.setTabBarItem({ index, text }).catch(() => {});

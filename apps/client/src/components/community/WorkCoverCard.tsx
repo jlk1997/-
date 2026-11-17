@@ -8,6 +8,7 @@ import { BottomSheet, Icon, Badge } from "../ui";
 import { CommunityPostButton } from "./CommunityPostButton";
 import { AiGeneratedBadge } from "../legal/AiGeneratedBadge";
 import { clsx } from "../../utils/clsx";
+import { isPostProcessDegraded } from "../../utils/postProcess";
 import "./WorkCoverCard.scss";
 
 type Props = {
@@ -35,6 +36,9 @@ type Props = {
   onPostProcess?: () => void;
   onEmbed?: () => void;
   onRename?: () => void;
+  onBeautify?: () => void;
+  fromWorkbench?: boolean;
+  hasBeautifyMaster?: boolean;
   onOpen?: () => void;
 };
 
@@ -47,6 +51,7 @@ export function WorkCoverCard({
   published,
   postId,
   hlsReady,
+  postProcessStatus,
   isAiGenerated = true,
   selected,
   selectMode,
@@ -60,14 +65,20 @@ export function WorkCoverCard({
   onPostProcess,
   onEmbed,
   onRename,
+  onBeautify,
+  fromWorkbench,
+  hasBeautifyMaster,
   onOpen,
 }: Props) {
   const { copy } = useLocale();
   const w = copy.worksUi;
   const [menuOpen, setMenuOpen] = useState(false);
+  const sku = String(postProcessStatus?.sku_kind || "");
+  const degraded = isPostProcessDegraded(postProcessStatus);
 
   const menuItems = [
     onRename && { id: "rename", label: w.renameAction, onClick: onRename },
+    onBeautify && { id: "beautify", label: copy.lightEditorUi.openBeautify, onClick: onBeautify },
     onRemix && { id: "remix", label: copy.derivative.remix.short, onClick: onRemix },
     onCover && { id: "cover", label: copy.derivative.cover.short, onClick: onCover },
     track && {
@@ -90,10 +101,10 @@ export function WorkCoverCard({
       >
         <View className="work-cover-card__hero">
           {coverUrl ? (
-            <Image className="work-cover-card__img" src={coverUrl} mode="aspectFill" />
+            <Image className="work-cover-card__img" src={coverUrl} mode="aspectFill" lazyLoad />
           ) : (
             <View className="work-cover-card__img work-cover-card__img--fallback">
-              <Icon name="music" size="lg" accent />
+              <Icon name="music" size="lg" />
             </View>
           )}
           <View className="work-cover-card__gradient" />
@@ -110,7 +121,11 @@ export function WorkCoverCard({
           <View className="work-cover-card__badges">
             {isAiGenerated && <AiGeneratedBadge compact />}
             {published && <Badge tone="accent">{w.published}</Badge>}
-            {hlsReady && <Badge tone="success">HLS</Badge>}
+            {hlsReady && !degraded && <Badge tone="success">{w.hlsReady}</Badge>}
+            {sku === "instrumental" && <Badge tone="accent">{w.instrumentalSku}</Badge>}
+            {fromWorkbench && <Badge tone="accent">{w.beautifyMaster}</Badge>}
+            {hasBeautifyMaster && !fromWorkbench && <Badge tone="warning">{w.hasBeautifyMaster}</Badge>}
+            {degraded && <Badge tone="warning">{w.artifactsDegraded}</Badge>}
           </View>
         </View>
 

@@ -39,7 +39,7 @@ export function ReferenceTrackPicker({ works, selectedId, avOffset, onSelect, on
       <Text className="ref-track-picker__hint">{rt.hint}</Text>
       {loading && <Text className="typo-meta">…</Text>}
       {!loading && works.length === 0 && (
-        <Button variant="secondary" size="sm" onClick={() => Taro.switchTab({ url: "/pages/library/index" })}>
+        <Button variant="secondary" size="sm" onClick={() => Taro.navigateTo({ url: "/pages/library/index" })}>
           {rt.none}
         </Button>
       )}

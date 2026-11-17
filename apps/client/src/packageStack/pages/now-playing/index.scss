@@ -117,7 +117,6 @@
     width: 24rpx;
     border-radius: 5rpx;
     background: $gold;
-    box-shadow: 0 0 12rpx $gold-glow;
   }
 }
 
@@ -135,8 +134,8 @@
 }
 
 .now-playing__action {
-  width: 72rpx;
-  height: 72rpx;
+  width: 88rpx;
+  height: 88rpx;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -185,12 +184,12 @@
   width: 104rpx;
   height: 104rpx;
   border-radius: $radius-pill;
-  background: linear-gradient(135deg, #e8c98a, $gold);
-  border: 2rpx solid rgba(255, 255, 255, 0.25);
+  background: $gold;
+  border: 2rpx solid $gold;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: $shadow-gold;
+  box-shadow: none;
   transition: transform $duration-fast $ease-out;
   flex-shrink: 0;
   color: $void;
@@ -200,7 +199,7 @@
   }
 
   &--active {
-    box-shadow: $shadow-gold, 0 0 32rpx var(--player-accent-glow, #{$gold-glow});
+    box-shadow: none;
   }
 }
 
@@ -213,7 +212,7 @@
   align-items: center;
   gap: $space-sm;
   padding: $space-md 0;
-  border-bottom: 1rpx solid $border-ritual;
+  border-bottom: 1rpx solid $border-subtle;
 
   &--active .now-playing__queue-title {
     color: var(--player-accent, #{$accent});
@@ -237,7 +236,7 @@
   background: $surface-elevated;
 
   &--fallback {
-    background: linear-gradient(135deg, var(--player-accent, #{$gold}), $gold-muted);
+    background: $slate-veil;
   }
 }
 

@@ -9,6 +9,7 @@ venv/
 .env
 apps/client/.env
 .env.production
+deploy/certs/
 
 # Node
 node_modules/
@@ -16,6 +17,7 @@ node_modules/
 # Build output
 apps/client/dist/
 apps/client/dist-h5/
+/dist/
 
 # Build / compiler caches & logs
 apps/client/.swc/

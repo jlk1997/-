@@ -3,6 +3,7 @@ export default {
   pages: [
     "pages/create/index",
     "pages/feed/index",
+    "pages/creator/index",
     "pages/library/index",
     "pages/profile/index",
   ],
@@ -34,12 +35,19 @@ export default {
         "pages/marketplace/index",
         "pages/emotion-calendar/index",
         "pages/creator-earnings/index",
+        "pages/sync-desk/index",
       ],
     },
     {
       root: "packageStudio",
       name: "studio",
-      pages: ["pages/journey/index", "pages/provenance/index", "pages/feedback/index", "pages/variation-lab/index"],
+      pages: [
+        "pages/journey/index",
+        "pages/provenance/index",
+        "pages/feedback/index",
+        "pages/variation-lab/index",
+        "pages/workbench-lite/index",
+      ],
     },
     {
       root: "packageOps",
@@ -61,19 +69,40 @@ export default {
         "pages/community-rules/index",
         "pages/payment-terms/index",
         "pages/minor-protection/index",
+        "pages/distribution-license/index",
+        "pages/royalty-payout/index",
       ],
     },
     {
       root: "packageSocial",
       name: "social",
-      pages: ["pages/charts/index", "pages/duels/index", "pages/duel/index"],
+      pages: ["pages/charts/index", "pages/duels/index", "pages/duel/index", "pages/radio/index"],
+    },
+    {
+      root: "packageCreator",
+      name: "creator",
+      pages: [
+        "pages/hub/index",
+        "pages/help/index",
+        "pages/release/index",
+        "pages/deliveries/index",
+        "pages/data-import/index",
+        "pages/settlements/index",
+        "pages/wallet/index",
+        "pages/accounts/index",
+        "pages/work/index",
+        "pages/passport/index",
+        "pages/commune/index",
+        "pages/remote-login/index",
+      ],
     },
   ],
   preloadRule: {
     "pages/create/index": { network: "wifi", packages: ["studio"] },
     "pages/feed/index": { network: "wifi", packages: ["social", "stack"] },
-    "pages/library/index": { network: "wifi", packages: ["stack"] },
-    "pages/profile/index": { network: "wifi", packages: ["stack", "commerce"] },
+    "pages/creator/index": { network: "wifi", packages: ["creator", "commerce"] },
+    "pages/library/index": { network: "wifi", packages: ["stack", "studio"] },
+    "pages/profile/index": { network: "wifi", packages: ["stack", "commerce", "studio"] },
   },
   window: {
     backgroundTextStyle: "dark",
@@ -84,7 +113,7 @@ export default {
   },
   tabBar: {
     color: "#8888aa",
-    selectedColor: "#d4af6a",
+    selectedColor: "#f2f2f7",
     backgroundColor: "#0e0e16",
     borderStyle: "white",
     list: [
@@ -102,9 +131,15 @@ export default {
       },
       {
         pagePath: "pages/library/index",
-        text: "库",
+        text: "作品",
         iconPath: "assets/tab/library.png",
         selectedIconPath: "assets/tab/library-active.png",
+      },
+      {
+        pagePath: "pages/creator/index",
+        text: "发行",
+        iconPath: "assets/tab/ship.png",
+        selectedIconPath: "assets/tab/ship-active.png",
       },
       {
         pagePath: "pages/profile/index",

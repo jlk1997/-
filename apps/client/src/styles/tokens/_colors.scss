@@ -1,11 +1,12 @@
-// Occult Atelier Design System v2 — Colors
+// BitTune surfaces — gold is accent only, not wallpaper
 
 // Deep void surfaces
 $void: #050508;
 $obsidian: #0e0e16;
 $slate-veil: #161622;
-$border-ritual: rgba(212, 175, 106, 0.12);
 $border: rgba(255, 255, 255, 0.08);
+$border-subtle: $border;
+$border-ritual: $border-subtle; // alias — prefer $border-subtle
 
 // Text
 $text: #f0f0f5;

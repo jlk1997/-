@@ -56,6 +56,22 @@ SOUND_RECIPE_OPTIONS = {
         {"id": "swing", "label_zh": "摇摆", "token": "swing rhythm"},
         {"id": "free", "label_zh": "自由节奏", "token": "free rhythm"},
     ],
+    "vocal_genders": [
+        {"id": "female", "label_zh": "女声", "label_en": "Female", "token": "female vocal"},
+        {"id": "male", "label_zh": "男声", "label_en": "Male", "token": "male vocal"},
+        {"id": "duet", "label_zh": "对唱", "label_en": "Duet", "token": "duet"},
+    ],
+    "vocal_styles": [
+        {"id": "rap", "label_zh": "说唱", "label_en": "Rap", "token": "rap vocal"},
+        {"id": "breathy", "label_zh": "气声", "label_en": "Breathy", "token": "breathy vocal"},
+        {"id": "belt", "label_zh": "有力", "label_en": "Powerful", "token": "powerful vocal"},
+    ],
+    "languages": [
+        {"id": "zh", "label_zh": "中文", "label_en": "Mandarin", "token": "Mandarin lyrics"},
+        {"id": "yue", "label_zh": "粤语", "label_en": "Cantonese", "token": "Cantonese lyrics"},
+        {"id": "en", "label_zh": "英文", "label_en": "English", "token": "English lyrics"},
+        {"id": "ja", "label_zh": "日文", "label_en": "Japanese", "token": "Japanese lyrics"},
+    ],
     "eras": [
         {"id": "baroque", "label_zh": "巴洛克", "token": "Baroque era"},
         {"id": "romantic", "label_zh": "浪漫派", "token": "Romantic era"},

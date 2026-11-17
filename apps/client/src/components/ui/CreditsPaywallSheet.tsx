@@ -7,7 +7,7 @@ import { useCreditsOptional } from "../../contexts/CreditsProvider";
 import { isWeappIos, payProduct, type PaymentChannel } from "../../platform/payment";
 import { pollPaymentUntilPaid } from "../../utils/paymentPoll";
 import { getRequiredVersions } from "../../utils/consent";
-import { LEGAL_ROUTES } from "../../utils/legal";
+import { LEGAL_ROUTES, legalDocLabel } from "../../utils/legal";
 import { requestLowCreditsSubscribeMessages } from "../../platform/wechatSubscribe";
 import { stackPage } from "../../constants/routes";
 import { BottomSheet, Button, PaymentQRModal, PricingPackCard } from "./index";
@@ -23,7 +23,7 @@ type Props = {
   initialTab?: "member" | "pack";
 };
 
-type Pack = { id: string; label: string; credits?: number; price_cny_yuan?: number };
+type Pack = { id: string; label: string; credits?: number; price_cny_yuan?: number; wechat_vpay_enabled?: boolean };
 type Plan = {
   id: string;
   label: string;
@@ -31,6 +31,7 @@ type Plan = {
   price_cny_yuan?: number;
   monthly_credits: number;
   upfront_credits?: number;
+  wechat_vpay_enabled?: boolean;
 };
 
 let packsCache: Pack[] | null = null;
@@ -58,7 +59,7 @@ export function CreditsPaywallSheet({
   source = "unknown",
   initialTab = "member",
 }: Props) {
-  const { copy } = useLocale();
+  const { copy, locale } = useLocale();
   const p = copy.paywallUi;
   const pr = copy.pricingUi;
   const c = copy.commercialUi;
@@ -77,6 +78,11 @@ export function CreditsPaywallSheet({
   const isWeapp = process.env.TARO_ENV === "weapp";
   const isH5 = process.env.TARO_ENV === "h5";
   const onIos = isWeappIos();
+  const chinaPay = !(isH5 && locale === "en");
+  const formatYuan = (yuan?: number) => {
+    if (yuan == null) return "—";
+    return locale === "en" ? `CNY ${yuan}` : `¥${yuan}`;
+  };
 
   useEffect(() => {
     getRequiredVersions().then((v) => {
@@ -98,7 +104,7 @@ export function CreditsPaywallSheet({
       .catch(() => {});
     if (!trackedOpenRef.current) {
       trackedOpenRef.current = true;
-      void requestLowCreditsSubscribeMessages();
+      if (isWeapp) void requestLowCreditsSubscribeMessages();
       vibeApi.trackEvent("paywall_view", { source, required: requiredCredits, balance, shortfall }).catch(() => {});
     }
   }, [open, source, requiredCredits, balance, shortfall, initialTab]);
@@ -239,7 +245,7 @@ export function CreditsPaywallSheet({
               className="paywall-sheet__consent-link"
               onClick={() => Taro.navigateTo({ url: LEGAL_ROUTES.paymentTerms }).catch(() => {})}
             >
-              《{copy.legalUi.paymentTerms}》
+              {legalDocLabel(copy.legalUi.paymentTerms, locale)}
             </Text>
           </View>
 
@@ -248,7 +254,7 @@ export function CreditsPaywallSheet({
               <Text className="paywall-sheet__badge">{p.memberRecommend}</Text>
               <PricingPackCard
                 label={featuredPlan.label}
-                price={`¥${featuredPlan.price_cny_yuan ?? "—"}`}
+                price={formatYuan(featuredPlan.price_cny_yuan)}
                 featured
                 badge={featuredPlan.id === "sub_yearly" ? c.yearlyBadge : undefined}
               >
@@ -273,15 +279,20 @@ export function CreditsPaywallSheet({
                   variant="primary"
                   size="sm"
                   block
+                  disabled={isWeapp && featuredPlan.wechat_vpay_enabled === false}
                   loading={buying?.startsWith(`${featuredPlan.id}:`)}
                   onClick={() => buy(featuredPlan.id, isWeapp ? "wechat" : "stripe")}
                 >
-                  {p.subscribeNow}
+                  {isH5 ? pr.payStripe : p.subscribeNow}
                 </Button>
+                {isWeapp && featuredPlan.wechat_vpay_enabled === false ? (
+                  <Text className="typo-meta">{pr.vpayNotConfigured}</Text>
+                ) : null}
+                {isH5 ? <Text className="paywall-sheet__stripe-hint">{pr.stripeHint}</Text> : null}
               </PricingPackCard>
               {monthlyPlan && featuredPlan.id !== "sub_monthly" && (
                 <Button variant="ghost" size="sm" block onClick={() => buy("sub_monthly", isWeapp ? "wechat" : "stripe")}>
-                  {monthlyPlan.label} · ¥{monthlyPlan.price_cny_yuan}
+                  {monthlyPlan.label} · {formatYuan(monthlyPlan.price_cny_yuan)}
                 </Button>
               )}
             </View>
@@ -291,7 +302,7 @@ export function CreditsPaywallSheet({
             <>
               <PricingPackCard
                 label={recommended.label}
-                price={`¥${recommended.price_cny_yuan ?? "—"}`}
+                price={formatYuan(recommended.price_cny_yuan)}
                 featured
                 badge={pr.bestValue}
               >
@@ -304,12 +315,16 @@ export function CreditsPaywallSheet({
                   variant="primary"
                   size="sm"
                   block
+                  disabled={isWeapp && recommended.wechat_vpay_enabled === false}
                   loading={buying === `${recommended.id}:wechat` || buying === `${recommended.id}:stripe`}
                   onClick={() => buy(recommended.id, isWeapp ? "wechat" : "stripe")}
                 >
-                  {isWeapp ? pr.wechatPay : pr.stripe}
+                  {isWeapp ? pr.wechatPay : pr.payStripe}
                 </Button>
-                {isH5 && (
+                {isWeapp && recommended.wechat_vpay_enabled === false ? (
+                  <Text className="typo-meta">{pr.vpayNotConfigured}</Text>
+                ) : null}
+                {isH5 && chinaPay && (
                   <View className="paywall-sheet__alt">
                     <Button size="sm" variant="secondary" loading={buying === `${recommended.id}:alipay`} onClick={() => buy(recommended.id, "alipay")}>
                       {pr.alipay}
@@ -319,6 +334,7 @@ export function CreditsPaywallSheet({
                     </Button>
                   </View>
                 )}
+                {isH5 ? <Text className="paywall-sheet__stripe-hint">{pr.stripeHint}</Text> : null}
               </PricingPackCard>
               {!expanded && visiblePacks.length > 1 && (
                 <Button variant="ghost" size="sm" block onClick={() => setExpanded(true)}>
@@ -329,9 +345,15 @@ export function CreditsPaywallSheet({
                 visiblePacks
                   .filter((pk) => pk.id !== recommended?.id)
                   .map((pk) => (
-                    <PricingPackCard key={pk.id} label={pk.label} price={`¥${pk.price_cny_yuan ?? "—"}`}>
-                      <Button variant="secondary" size="sm" loading={buying?.startsWith(`${pk.id}:`)} onClick={() => buy(pk.id, isWeapp ? "wechat" : "stripe")}>
-                        {pr.recharge}
+                    <PricingPackCard key={pk.id} label={pk.label} price={formatYuan(pk.price_cny_yuan)}>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled={isWeapp && pk.wechat_vpay_enabled === false}
+                        loading={buying?.startsWith(`${pk.id}:`)}
+                        onClick={() => buy(pk.id, isWeapp ? "wechat" : "stripe")}
+                      >
+                        {isWeapp ? pr.wechatPay : pr.payStripe}
                       </Button>
                     </PricingPackCard>
                   ))}

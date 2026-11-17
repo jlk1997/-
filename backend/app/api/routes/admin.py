@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -42,6 +42,10 @@ class CreditGrantRequest(BaseModel):
 
 class TenantAssignRequest(BaseModel):
     tenant_id: str = Field(min_length=1, max_length=64, pattern=r"^[a-zA-Z0-9._-]+$")
+
+
+class KycStatusBody(BaseModel):
+    status: str = Field(pattern=r"^(none|pending|verified|rejected)$")
 
 
 class TenantCreateRequest(BaseModel):
@@ -184,6 +188,121 @@ def assign_user_tenant(
     return {"user_id": str(target.id), "username": target.username, "tenant_id": target.tenant_id}
 
 
+@router.patch("/users/{user_id}/kyc")
+def admin_set_kyc(
+    user_id: str,
+    payload: KycStatusBody,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    from app.services.admin_audit import log_admin_action
+
+    target = db.query(User).filter(User.id == uuid.UUID(user_id)).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    target.kyc_status = payload.status
+    db.commit()
+    log_admin_action(db, admin_id=admin.id, action="set_kyc", target=user_id, detail={"status": payload.status})
+    return {"user_id": str(target.id), "kyc_status": target.kyc_status}
+
+
+def _set_user_banned(db: Session, target: User, *, banned: bool, admin: User) -> dict:
+    if target.id == admin.id:
+        raise HTTPException(status_code=400, detail="Cannot ban yourself")
+    if banned and target.is_admin:
+        others = db.query(User).filter(User.is_admin.is_(True), User.is_active.is_(True), User.id != target.id).count()
+        if others <= 0:
+            raise HTTPException(status_code=400, detail="Cannot ban the last admin")
+    target.is_active = not banned
+    from app.api.routes.auth import invalidate_me_cache
+
+    invalidate_me_cache(target.id)
+    db.commit()
+    from app.services.admin_audit import log_admin_action
+
+    log_admin_action(db, admin_id=admin.id, action="ban_user" if banned else "unban_user", target=str(target.id))
+    return {"user_id": str(target.id), "username": target.username, "is_active": bool(target.is_active), "banned": banned}
+
+
+@router.get("/users")
+def admin_list_users(
+    q: str | None = Query(default=None),
+    banned: bool | None = Query(default=None),
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    query = db.query(User)
+    if banned is True:
+        query = query.filter(User.is_active.is_(False))
+    elif banned is False:
+        query = query.filter(User.is_active.is_(True))
+    needle = (q or "").strip()
+    if needle:
+        like = f"%{needle}%"
+        query = query.filter((User.email.ilike(like)) | (User.username.ilike(like)))
+    rows = query.order_by(User.created_at.desc()).limit(40).all()
+    return {
+        "users": [
+            {
+                "id": str(row.id),
+                "email": row.email,
+                "username": row.username,
+                "display_name": row.display_name,
+                "is_active": bool(row.is_active),
+                "is_admin": bool(row.is_admin),
+                "kyc_status": row.kyc_status or "none",
+            }
+            for row in rows
+        ]
+    }
+
+
+@router.post("/users/{user_id}/ban")
+def admin_ban_user(user_id: str, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    target = db.query(User).filter(User.id == uuid.UUID(user_id)).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    return _set_user_banned(db, target, banned=True, admin=admin)
+
+
+@router.delete("/users/{user_id}/ban")
+def admin_unban_user(user_id: str, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    target = db.query(User).filter(User.id == uuid.UUID(user_id)).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    return _set_user_banned(db, target, banned=False, admin=admin)
+
+
+@router.get("/kyc")
+def admin_kyc_queue(
+    status: str = Query(default="pending"),
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    allowed = {"none", "pending", "verified", "rejected"}
+    if status not in allowed:
+        raise HTTPException(status_code=400, detail="Invalid KYC status")
+    rows = (
+        db.query(User)
+        .filter(User.kyc_status == status)
+        .order_by(User.created_at.desc())
+        .limit(80)
+        .all()
+    )
+    return {
+        "status": status,
+        "users": [
+            {
+                "id": str(row.id),
+                "email": row.email,
+                "username": row.username,
+                "kyc_status": row.kyc_status or "none",
+            }
+            for row in rows
+        ],
+    }
+
+
 @router.post("/credits/grant")
 def grant_credits(
     payload: CreditGrantRequest,
@@ -300,17 +419,16 @@ def admin_activation_funnel(
 @router.get("/audit-logs")
 def admin_audit_logs(
     limit: int = 50,
+    action: str | None = None,
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     from app.models.schemas import AdminAuditLog
 
-    rows = (
-        db.query(AdminAuditLog)
-        .order_by(AdminAuditLog.created_at.desc())
-        .limit(min(limit, 200))
-        .all()
-    )
+    query = db.query(AdminAuditLog).order_by(AdminAuditLog.created_at.desc())
+    if action:
+        query = query.filter(AdminAuditLog.action == action)
+    rows = query.limit(min(limit, 200)).all()
     return [
         {
             "id": str(r.id),
@@ -391,6 +509,22 @@ def resolve_report(
         if comment:
             comment.is_filtered = True
             comment.content = "[内容已隐藏]"
+    elif payload.action == "ban_user":
+        target = None
+        if report.work_id:
+            work = db.query(Work).filter(Work.id == report.work_id).first()
+            if work:
+                target = db.query(User).filter(User.id == work.owner_id).first()
+        if target is None and report.post_id:
+            post = db.query(Post).filter(Post.id == report.post_id).first()
+            if post:
+                target = db.query(User).filter(User.id == post.author_id).first()
+        if target is None and report.comment_id:
+            comment = db.query(Comment).filter(Comment.id == report.comment_id).first()
+            if comment:
+                target = db.query(User).filter(User.id == comment.user_id).first()
+        if target:
+            _set_user_banned(db, target, banned=True, admin=user)
     db.commit()
     from app.services.admin_audit import log_admin_action
 
@@ -453,6 +587,9 @@ def seed_defaults(user: User = Depends(require_admin), db: Session = Depends(get
         ("personalized_feed", True, "Enable embedding-based feed ranking"),
         ("credits_gate", settings.credits_gate_enabled, "Enable generation credits gate (402 when insufficient)"),
         ("multi_tenant", False, "Enable tenant_id isolation on feed and works"),
+        ("dsp_distribution", True, "Enable DSP distribution and creator releases"),
+        ("royalty_wallet", True, "Enable fiat royalty wallet and withdrawals"),
+        ("release_qc", True, "Enable release-ready QC before distribution"),
     ]
     for key, enabled, desc in defaults_flags:
         if not db.query(FeatureFlag).filter(FeatureFlag.key == key).first():
@@ -475,8 +612,10 @@ def seed_defaults(user: User = Depends(require_admin), db: Session = Depends(get
         ))
     presets_seeded = seed_builtin_presets(db)
     from app.core.style_presets import sync_member_presets
+    from app.services.distribution.catalog import seed_distribution_catalog
 
     member_synced = sync_member_presets(db)
+    seed_distribution_catalog(db)
     db.commit()
     return {"status": "seeded", "presets_seeded": presets_seeded, "member_presets_synced": member_synced}
 
@@ -628,3 +767,583 @@ def admin_finalize_challenge(
     if not c:
         raise HTTPException(status_code=404, detail="Challenge not found")
     return distribute_challenge_prizes(db, c)
+
+
+class DeliveryStatusBody(BaseModel):
+    status: str
+    reason: str | None = None
+    store_url: str | None = None
+    external_id: str | None = None
+
+
+class MarkReleaseLiveBody(BaseModel):
+    store_url: str | None = None
+
+
+class WithdrawalReviewBody(BaseModel):
+    approve: bool = True
+    admin_note: str | None = None
+
+
+class SettlementRunBody(BaseModel):
+    period_key: str | None = None
+
+
+class ConnectorMatchBody(BaseModel):
+    work_id: str
+
+
+@router.get("/distribution/deliveries")
+def admin_deliveries(
+    status: str | None = Query(default=None),
+    queue_only: bool = Query(default=False),
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    from app.services.distribution.service import admin_list_deliveries
+
+    return {"deliveries": admin_list_deliveries(db, status=status, queue_only=queue_only)}
+
+
+@router.post("/distribution/deliveries/{delivery_id}/retry")
+def admin_retry_delivery(delivery_id: str, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from app.services.admin_audit import log_admin_action
+    from app.models.schemas import DistributionDelivery
+    from app.services.distribution.pipeline import dispatch_delivery, process_one_delivery
+
+    try:
+        did = uuid.UUID(delivery_id)
+    except ValueError as exc:
+        raise HTTPException(400, "Invalid delivery id") from exc
+    row = db.query(DistributionDelivery).filter(DistributionDelivery.id == did).first()
+    if not row:
+        raise HTTPException(404, "Delivery not found")
+    if row.status in ("live", "taken_down"):
+        raise HTTPException(400, "Delivery is already closed")
+    row.status = "submitting"
+    row.next_retry_at = None
+    row.last_error = None
+    db.commit()
+    result = process_one_delivery(db, row, force=True, commit=True)
+    if result.get("status") == "submitting":
+        dispatch_delivery(str(row.id), str(row.release_id), process_now=False)
+    log_admin_action(db, admin_id=user.id, action="retry_delivery", target=delivery_id, detail=result)
+    return result
+
+
+@router.post("/distribution/deliveries/{delivery_id}/claim")
+def admin_claim_delivery(delivery_id: str, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from app.services.admin_audit import log_admin_action
+    from app.services.distribution.service import claim_delivery
+
+    result = claim_delivery(db, user, delivery_id)
+    log_admin_action(db, admin_id=user.id, action="claim_delivery", target=delivery_id, detail={"claimed_by": result.get("claimed_by")})
+    return result
+
+
+@router.post("/distribution/deliveries/{delivery_id}/unclaim")
+def admin_unclaim_delivery(delivery_id: str, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from app.services.admin_audit import log_admin_action
+    from app.services.distribution.service import unclaim_delivery
+
+    result = unclaim_delivery(db, user, delivery_id)
+    log_admin_action(db, admin_id=user.id, action="unclaim_delivery", target=delivery_id)
+    return result
+
+
+@router.get("/distribution/deliveries/{delivery_id}/pack")
+def admin_delivery_pack(delivery_id: str, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from app.services.distribution.service import delivery_ops_pack
+
+    return delivery_ops_pack(db, delivery_id)
+
+
+@router.get("/distribution/releases/{release_id}/workbench")
+def admin_release_workbench(release_id: str, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from app.services.distribution.service import release_ops_workbench
+
+    return release_ops_workbench(db, release_id, admin=user)
+
+
+@router.post("/distribution/reconcile")
+def admin_reconcile_distribution(user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from app.services.admin_audit import log_admin_action
+    from app.services.distribution.pipeline import reconcile_distribution
+
+    result = reconcile_distribution(db)
+    log_admin_action(db, admin_id=user.id, action="reconcile_distribution", target="platform", detail=result)
+    return result
+
+
+@router.get("/distribution/health")
+def admin_distribution_health(user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from app.services.distribution.pipeline import distribution_health
+
+    return distribution_health(db)
+
+
+@router.get("/seats/health")
+def admin_seats_health(user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from app.models.schemas import CreatorSeat, SeatJob
+    from app.services.seats.service import serialize_seat
+
+    seats = db.query(CreatorSeat).order_by(CreatorSeat.ownership.desc(), CreatorSeat.channel_code.asc()).all()
+    queued = db.query(SeatJob).filter(SeatJob.status == "queued").count()
+    failed = db.query(SeatJob).filter(SeatJob.status == "failed").count()
+    login_wall = sum(1 for row in seats if row.status in ("needs_challenge", "expired", "needs_session"))
+    broke = set()
+    for row in seats:
+        health = (row.extra or {}).get("farm_health") or {}
+        err = str(health.get("error") or "")
+        if health.get("selector_broke") or err in ("selector_broke", "no_rows"):
+            broke.add(str(row.id))
+    recent = (
+        db.query(SeatJob)
+        .filter(SeatJob.status.in_(("failed", "done")))
+        .order_by(SeatJob.created_at.desc())
+        .limit(80)
+        .all()
+    )
+    for job in recent:
+        payload = job.result if isinstance(job.result, dict) else {}
+        err = str(payload.get("error") or "")
+        if payload.get("selector_broke") or err in ("selector_broke", "no_rows"):
+            broke.add(str(job.seat_id))
+    selector_broke = len(broke)
+    from app.services.harvest.playbooks import playbook_health
+
+    patrol_failed = 0
+    for row in seats:
+        extra = row.extra if isinstance(row.extra, dict) else {}
+        health = extra.get("farm_health") if isinstance(extra.get("farm_health"), dict) else {}
+        if extra.get("patrol_error") or health.get("error") or health.get("ok") is False:
+            patrol_failed += 1
+
+    return {
+        "queued": queued,
+        "failed": failed,
+        "selector_broke": selector_broke,
+        "login_wall": login_wall,
+        "patrol_failed": patrol_failed,
+        "seats": [
+            {
+                **serialize_seat(row),
+                "farm_health": (row.extra or {}).get("farm_health"),
+                "playbook_health": playbook_health(row.channel_code),
+            }
+            for row in seats
+        ],
+    }
+
+
+@router.get("/distribution/connector/batches")
+def admin_connector_batches(user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from app.services.royalty import connector as connector_svc
+
+    return {"batches": connector_svc.list_batches(db)}
+
+
+@router.get("/distribution/connector/claims")
+def admin_connector_claims(status: str = Query(default="unclaimed"), user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from app.services.royalty import connector as connector_svc
+
+    return {"claims": connector_svc.list_claims(db, status=status)}
+
+
+@router.post("/distribution/connector/batches/{batch_id}/confirm")
+def admin_confirm_connector_batch(batch_id: str, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from app.services.admin_audit import log_admin_action
+    from app.services.royalty import connector as connector_svc
+
+    result = connector_svc.confirm_batch(db, batch_id)
+    log_admin_action(db, admin_id=user.id, action="confirm_connector_batch", target=batch_id, detail=result)
+    return result
+
+
+@router.post("/distribution/connector/claims/{claim_id}/match")
+def admin_match_connector_claim(
+    claim_id: str,
+    payload: ConnectorMatchBody,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    from app.services.admin_audit import log_admin_action
+    from app.services.royalty import connector as connector_svc
+
+    result = connector_svc.match_claim(db, claim_id, payload.work_id, user, admin=True)
+    log_admin_action(db, admin_id=user.id, action="match_connector_claim", target=claim_id, detail=result)
+    return result
+
+
+@router.post("/distribution/deliveries/{delivery_id}/status")
+def admin_delivery_status(
+    delivery_id: str,
+    payload: DeliveryStatusBody,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    from app.services.admin_audit import log_admin_action
+    from app.services.distribution.service import admin_set_delivery_status
+
+    result = admin_set_delivery_status(
+        db,
+        delivery_id,
+        payload.status,
+        payload.reason,
+        store_url=payload.store_url,
+        external_id=payload.external_id,
+    )
+    log_admin_action(db, admin_id=user.id, action="delivery_status", target=delivery_id, detail=payload.model_dump())
+    return result
+
+
+@router.post("/distribution/releases/{release_id}/mark-live")
+def admin_release_live(
+    release_id: str,
+    payload: MarkReleaseLiveBody,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    from app.services.admin_audit import log_admin_action
+    from app.services.distribution.service import admin_mark_release_live
+
+    result = admin_mark_release_live(db, release_id, payload.store_url)
+    log_admin_action(db, admin_id=user.id, action="release_mark_live", target=release_id, detail=result)
+    return result
+
+
+@router.post("/distribution/analytics/sync")
+def admin_sync_analytics(user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from app.services.admin_audit import log_admin_action
+    from app.services.royalty.sync import sync_chartmetric_all, sync_youtube_all
+
+    result = {"youtube": sync_youtube_all(db), "licensed": sync_chartmetric_all(db)}
+    log_admin_action(db, admin_id=user.id, action="sync_analytics", target="platform", detail=result)
+    return result
+
+
+@router.get("/distribution/partners")
+def admin_distribution_partners(user: User = Depends(require_admin)):
+    from app.services.distribution.catalog import partner_payee_status
+
+    return partner_payee_status()
+
+
+@router.get("/distribution/reports")
+def admin_list_reports(user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from app.services.royalty.ingest import list_report_imports
+
+    return {"imports": list_report_imports(db, user, admin=True)}
+
+
+@router.get("/distribution/reports/unmatched")
+def admin_unmatched_official(user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from app.services.royalty.ingest import list_isrc_unmatched_snapshots
+
+    return {"snapshots": list_isrc_unmatched_snapshots(db)}
+
+
+@router.post("/distribution/reports/snapshots/{snapshot_id}/attach")
+def admin_attach_official_snapshot(
+    snapshot_id: str,
+    work_id: str = Query(...),
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    from app.services.admin_audit import log_admin_action
+    from app.services.royalty.ingest import attach_snapshot_to_work
+
+    result = attach_snapshot_to_work(db, user, snapshot_id, work_id, admin=True)
+    log_admin_action(db, admin_id=user.id, action="attach_official_snapshot", target=snapshot_id, detail=result)
+    return result
+
+
+@router.get("/harvest/unmatched")
+def admin_harvest_unmatched(user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from app.services.harvest.unmatched import list_unmatched
+
+    return {"rows": list_unmatched(db, user, admin=True)}
+
+
+@router.post("/harvest/unmatched/{unmatched_id}/attach")
+def admin_attach_harvest_unmatched(
+    unmatched_id: str,
+    work_id: str = Query(...),
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    from app.services.admin_audit import log_admin_action
+    from app.services.harvest.unmatched import attach_unmatched
+
+    result = attach_unmatched(db, user, unmatched_id, work_id, admin=True)
+    log_admin_action(db, admin_id=user.id, action="attach_harvest_unmatched", target=unmatched_id, detail=result)
+    return result
+
+
+@router.post("/distribution/reports")
+async def admin_import_report(
+    file: UploadFile = File(...),
+    source: str = Form("distributor_export"),
+    distributor_code: str | None = Form(None),
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    from app.services.admin_audit import log_admin_action
+    from app.services.royalty.ingest import ingest_report
+
+    content = await file.read()
+    result = ingest_report(
+        db,
+        user=user,
+        content=content,
+        filename=file.filename or "admin-report.csv",
+        source=source,
+        distributor_code=distributor_code,
+    )
+    log_admin_action(db, admin_id=user.id, action="import_report", target=result.get("import_id"), detail=result)
+    return result
+
+
+@router.get("/settlement/batches")
+def admin_batches(user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from app.services.royalty.settlement import list_batches
+
+    return {"batches": list_batches(db)}
+
+
+@router.get("/settlement/batches/{batch_id}")
+def admin_batch_detail(batch_id: str, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from app.services.royalty.settlement import get_batch_detail
+
+    return get_batch_detail(db, batch_id)
+
+
+@router.get("/settlement/preview")
+def admin_settlement_preview(user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from app.services.royalty.settlement import preview_settlement
+
+    return preview_settlement(db)
+
+
+@router.post("/settlement/run")
+def admin_run_settlement(
+    payload: SettlementRunBody | None = None,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    from app.services.admin_audit import log_admin_action
+    from app.services.royalty.settlement import run_settlement
+
+    result = run_settlement(db, period_key=payload.period_key if payload else None)
+    log_admin_action(db, admin_id=user.id, action="run_settlement", target=result.get("batch_id"), detail=result)
+    return result
+
+
+@router.post("/settlement/{batch_id}/confirm")
+def admin_confirm_settlement(batch_id: str, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from app.services.admin_audit import log_admin_action
+    from app.services.royalty.settlement import confirm_settlement
+
+    result = confirm_settlement(db, batch_id)
+    log_admin_action(db, admin_id=user.id, action="confirm_settlement", target=batch_id, detail=result)
+    return result
+
+
+@router.post("/settlement/{batch_id}/void")
+def admin_void_settlement(batch_id: str, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from app.services.admin_audit import log_admin_action
+    from app.services.royalty.settlement import void_settlement
+
+    result = void_settlement(db, batch_id)
+    log_admin_action(db, admin_id=user.id, action="void_settlement", target=batch_id, detail=result)
+    return result
+
+
+@router.get("/settlement/withdrawals")
+def admin_withdrawals(user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from app.services.royalty.wallet import admin_list_withdrawals
+
+    rows = admin_list_withdrawals(db)
+    return {"withdrawals": rows, "pending_count": sum(1 for row in rows if row.get("status") == "pending")}
+
+
+@router.post("/settlement/withdrawals/{withdrawal_id}/review")
+def admin_review_withdrawal(
+    withdrawal_id: str,
+    payload: WithdrawalReviewBody,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    from app.services.admin_audit import log_admin_action
+    from app.services.royalty.wallet import review_withdrawal
+
+    result = review_withdrawal(db, withdrawal_id, approve=payload.approve, admin_note=payload.admin_note)
+    log_admin_action(db, admin_id=user.id, action="review_withdrawal", target=withdrawal_id, detail=payload.model_dump())
+    return result
+
+
+class VendorKeyCreate(BaseModel):
+    vendor: str = Field(min_length=2, max_length=32)
+    capability: str = Field(min_length=2, max_length=24)
+    api_key: str = Field(min_length=8, max_length=2048)
+    base_url: str | None = None
+    model: str | None = None
+    weight: int = Field(default=10, ge=1, le=100)
+    max_inflight: int | None = Field(default=None, ge=1, le=32)
+    daily_quota: int | None = Field(default=None, ge=1, le=100000)
+
+
+class VendorKeyPatch(BaseModel):
+    enabled: bool | None = None
+    weight: int | None = Field(default=None, ge=1, le=100)
+    max_inflight: int | None = Field(default=None, ge=1, le=32)
+    daily_quota: int | None = Field(default=None, ge=1, le=100000)
+
+
+@router.get("/vendor-keys")
+def admin_list_vendor_keys(user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from app.integrations.vendors.pool import ensure_env_keys, public_row
+    from app.models.schemas import VendorKey
+
+    ensure_env_keys(db)
+    rows = db.query(VendorKey).order_by(VendorKey.vendor, VendorKey.capability).all()
+    return {"keys": [public_row(row) for row in rows]}
+
+
+@router.post("/vendor-keys")
+def admin_create_vendor_key(
+    payload: VendorKeyCreate,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    from app.integrations.vendors.pool import add_key, public_row
+    from app.services.admin_audit import log_admin_action
+
+    row = add_key(
+        db,
+        vendor=payload.vendor,
+        capability=payload.capability,
+        api_key=payload.api_key,
+        base_url=payload.base_url,
+        model=payload.model,
+        weight=payload.weight,
+        max_inflight=payload.max_inflight,
+        daily_quota=payload.daily_quota,
+    )
+    log_admin_action(db, admin_id=user.id, action="vendor_key_create", target=str(row.id), detail={"vendor": row.vendor})
+    return public_row(row)
+
+
+@router.patch("/vendor-keys/{key_id}")
+def admin_patch_vendor_key(
+    key_id: str,
+    payload: VendorKeyPatch,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    from app.integrations.vendors.pool import public_row
+    from app.models.schemas import VendorKey
+
+    row = db.query(VendorKey).filter(VendorKey.id == key_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="vendor key not found")
+    if payload.enabled is not None:
+        row.enabled = payload.enabled
+    if payload.weight is not None:
+        row.weight = payload.weight
+    if payload.max_inflight is not None:
+        row.max_inflight = payload.max_inflight
+    if payload.daily_quota is not None:
+        row.daily_quota = payload.daily_quota
+    db.commit()
+    db.refresh(row)
+    return public_row(row)
+
+
+@router.get("/ops/dashboard")
+def ops_dashboard(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    from app.services.ops_dashboard import ops_daily_digest
+
+    return ops_daily_digest(db)
+
+
+@router.post("/ops/batch")
+def ops_batch_action(
+    payload: dict,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    action = payload.get("action")
+    ids = payload.get("ids", [])
+    if action not in ("retry_deliveries", "approve_kyc"):
+        raise HTTPException(status_code=400, detail=f"Unknown batch action: {action}")
+    if not isinstance(ids, list) or len(ids) > 50:
+        raise HTTPException(status_code=400, detail="ids must be a list of at most 50 items")
+
+    if action == "retry_deliveries":
+        from app.services.distribution.pipeline import process_one_delivery, dispatch_delivery
+        from app.models.schemas import DistributionDelivery
+
+        results = []
+        for did in ids:
+            try:
+                row = db.query(DistributionDelivery).filter(DistributionDelivery.id == uuid.UUID(did)).first()
+                if row and row.status not in ("live", "taken_down"):
+                    row.status = "submitting"
+                    row.next_retry_at = None
+                    row.last_error = None
+                    db.commit()
+                    result = process_one_delivery(db, row, force=True, commit=True)
+                    if result.get("status") == "submitting":
+                        dispatch_delivery(str(row.id), str(row.release_id), process_now=False)
+                    results.append(result)
+            except Exception:
+                pass
+        return {"action": action, "processed": len(results)}
+
+    if action == "approve_kyc":
+        from app.services.admin_audit import log_admin_action
+
+        processed = 0
+        for uid in ids:
+            try:
+                u = db.query(User).filter(User.id == uuid.UUID(uid)).first()
+                if u:
+                    u.kyc_status = "verified"
+                    processed += 1
+            except Exception:
+                pass
+        db.commit()
+        log_admin_action(
+            db,
+            admin_id=user.id,
+            action="approve_kyc",
+            target="batch",
+            detail={"ids": [str(item) for item in ids], "processed": processed},
+        )
+        return {"action": action, "processed": processed}
+
+    raise HTTPException(status_code=400, detail=f"Unknown batch action: {action}")
+
+
+@router.post("/vendor-keys/{key_id}/probe")
+async def admin_probe_vendor_key(
+    key_id: str,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    from app.integrations.vendors.pool import public_row
+    from app.integrations.vendors.probe import probe_and_record
+    from app.models.schemas import VendorKey
+    from app.services.admin_audit import log_admin_action
+
+    row = db.query(VendorKey).filter(VendorKey.id == key_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="vendor key not found")
+    result = await probe_and_record(db, row)
+    log_admin_action(db, admin_id=user.id, action="vendor_key_probe", target=str(row.id), detail={"ok": result.get("ok")})
+    db.refresh(row)
+    return {**public_row(row), "probe": {"ok": bool(result.get("ok")), "checked": result.get("checked"), "error": result.get("error")}}

@@ -1,0 +1,5 @@
+export default {
+  navigationBarTitleText: "作品",
+  enablePullDownRefresh: true,
+  backgroundTextStyle: "light",
+};

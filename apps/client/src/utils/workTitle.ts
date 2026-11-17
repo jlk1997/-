@@ -68,3 +68,9 @@ export function resolveWorkTitle(
   if (fromIntent) return fromIntent;
   return fallback;
 }
+
+const GENERIC_TITLES = new Set(["", "—", "-", "创作", "Untitled", "untitled", "Track", "track"]);
+
+export function isGenericWorkTitle(title?: string | null): boolean {
+  return GENERIC_TITLES.has((title || "").trim());
+}

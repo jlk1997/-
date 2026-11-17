@@ -12,7 +12,7 @@ export type StoredActiveGeneration = {
   jobId: string;
   returnUrl: string;
   startedAt: string;
-  jobType: "single" | "playlist" | "variations" | "remix";
+  jobType: "single" | "playlist" | "variations" | "remix" | "workbench";
   remixSource?: RemixSourceSnapshot;
 };
 

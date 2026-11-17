@@ -1,5 +1,5 @@
 import { View, Text } from "@tarojs/components";
-import Taro from "@tarojs/taro";
+import { openStackPage } from "../../utils/navigation";
 import "./ConsentCheckbox.scss";
 
 type Link = { label: string; route: string };
@@ -14,7 +14,7 @@ type Props = {
 export function ConsentCheckbox({ checked, onChange, links = [], children }: Props) {
   function open(route: string, e: { stopPropagation: () => void }) {
     e.stopPropagation();
-    Taro.navigateTo({ url: route }).catch(() => {});
+    openStackPage(route);
   }
 
   return (

@@ -1,0 +1,2 @@
+# Optional browser-farm extras. Do not install on the API image unless harvesting.
+playwright>=1.49.0

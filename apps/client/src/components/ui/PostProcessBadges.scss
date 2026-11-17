@@ -4,10 +4,17 @@
   align-items: center;
   gap: 8rpx;
   margin-top: 8rpx;
+  padding: 8rpx 0 4rpx;
 
   &__retry {
     color: $accent;
     font-size: 22rpx;
-    padding: 4rpx -2xs;
+    padding: 4rpx 10rpx;
+    border-radius: $radius-pill;
+    border: 1rpx solid rgba(212, 175, 106, 0.35);
+
+    &--busy {
+      opacity: 0.6;
+    }
   }
 }

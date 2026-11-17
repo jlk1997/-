@@ -27,6 +27,13 @@ async function main() {
     console.log(`  presets: ${presets.length} loaded`);
   }
   await check("/config/platform", { label: "GET /config/platform" });
+  const connector = await check("/seats/connector-config", { label: "GET /seats/connector-config" });
+  if (!connector?.hosts || !Object.keys(connector.hosts).length) {
+    console.error("✗ Expected connector hosts from CHANNEL_HOSTS");
+    process.exitCode = 1;
+  } else {
+    console.log(`  connector hosts: ${Object.keys(connector.hosts).length}`);
+  }
   const legal = await check("/legal/documents", { label: "GET /legal/documents" });
   if (!legal?.documents?.length) {
     console.error("✗ Expected legal documents");

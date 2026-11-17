@@ -10,12 +10,12 @@
   padding: 0 $space-xs 0 $space-2xs;
   background: rgba(5, 5, 8, 0.94);
   backdrop-filter: blur(24px);
-  border-top: 1rpx solid $border-ritual;
+  border-top: 1rpx solid $border-subtle;
   box-sizing: border-box;
   overflow: hidden;
 
   &--playing {
-    box-shadow: 0 -4rpx 24rpx $gold-glow;
+    box-shadow: none;
 
     .mini-player__progress-fill {
       background: var(--player-accent, #{$gold});
@@ -53,10 +53,10 @@
   border-radius: $radius-md;
   flex-shrink: 0;
   background: $slate-veil;
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border-subtle;
 
   &--fallback {
-    background: linear-gradient(135deg, var(--player-accent, #{$gold}), $gold-muted);
+    background: $slate-veil;
   }
 }
 
@@ -91,8 +91,8 @@
 }
 
 .mini-player__btn {
-  width: 80rpx;
-  height: 80rpx;
+  width: 88rpx;
+  height: 88rpx;
   display: flex;
   align-items: center;
   justify-content: center;

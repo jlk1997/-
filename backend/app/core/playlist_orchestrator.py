@@ -12,7 +12,8 @@ from app.core.emotion_engine import emotion_engine
 from app.core.music_prompt_builder import MusicCreativeSpec
 from app.core.journey_math import duration_from_preference, target_av_for_step
 from app.core.style_presets import get_preset
-from app.integrations.minimax.client import MiniMaxClient, minimax_client
+from app.integrations.vendors.router import build_music_prompt as routed_build_music_prompt
+from app.integrations.vendors.router import generate_music as routed_generate_music
 from app.models.schemas import (
     EmotionEmbedding,
     GenerationJob,
@@ -59,16 +60,35 @@ def build_share_text(journey_config: dict) -> str:
     return f"{title} · {label} · {steps} 轨转换旅程"
 
 
-class PlaylistOrchestrator:
-    """Markov-chain playlist generation with MiniMax + provenance persistence."""
+def playlist_music_request(music_result, *, seed: int, extra: dict | None = None) -> dict:
+    """Persist vendor_id only. Brand names stay off creator-facing lineage."""
+    meta = getattr(music_result, "metadata", None) or {}
+    payload = {
+        "prompt": getattr(music_result, "prompt", None),
+        "seed": seed,
+        "vendor_id": meta.get("vendor_id"),
+    }
+    blocked = {"vendor", "model", "vendor_key_prefix", "task_id"}
+    for key, value in (extra or {}).items():
+        if key not in blocked:
+            payload[key] = value
+    return payload
 
-    def __init__(
-        self,
-        db: Session,
-        minimax: MiniMaxClient | None = None,
-    ):
+
+def stamp_playlist_audio(audio_bytes: bytes, fallback_duration):
+    from app.services.distribution.catalog import clip_windows
+    from app.services.media import probe_audio
+
+    probed = probe_audio(audio_bytes)
+    duration = probed.get("duration") or fallback_duration
+    return duration, {"clip_windows": clip_windows(duration)}
+
+
+class PlaylistOrchestrator:
+    """Journey playlist generation via the vendor key pool + provenance."""
+
+    def __init__(self, db: Session):
         self.db = db
-        self.minimax = minimax or minimax_client
 
     def _sign_provenance(self, record: dict) -> str:
         payload = json.dumps(record, sort_keys=True, default=str)
@@ -138,19 +158,26 @@ class PlaylistOrchestrator:
         mock_audio_bytes: bytes | None = None,
     ):
         gen_seed = hash(f"{job.id}-{step}") % 1_000_000
+        from app.services.provider_checkpoint import guarded_generate_music
+
         last_exc: Exception | None = None
         for attempt in range(2):
             try:
-                music_result = await self.minimax.generate_music(
+                music_result = await guarded_generate_music(
+                    self.db,
+                    job,
+                    slot=f"step:{step}",
+                    schedule_recover=False,
                     prompt=prompt,
                     is_instrumental=instrumental,
                     seed=gen_seed,
-                    db=self.db,
                     user_id=str(owner_id),
                     mock_audio_bytes=mock_audio_bytes if settings.use_mock_ai else None,
+                    remelt=attempt > 0,
+                    prompt_context={"prompt": prompt, "seed": gen_seed, "step": step},
                 )
                 if not music_result.audio_bytes:
-                    raise RuntimeError("No audio returned from MiniMax")
+                    raise RuntimeError("No audio returned")
                 return music_result, gen_seed
             except Exception as exc:
                 last_exc = exc
@@ -212,6 +239,7 @@ class PlaylistOrchestrator:
         if anchor_context.get("genres"):
             base["genres"] = list(anchor_context["genres"])
 
+        owner = self.db.query(User).filter(User.id == owner_id).first()
         reference_cfg = resolve_reference_config(journey_config, anchor_context)
         ref_work_uuid = None
         if reference_cfg:
@@ -220,6 +248,7 @@ class PlaylistOrchestrator:
                 base,
                 reference_cfg.get("work_id"),
                 av_offset=reference_cfg.get("av_offset"),
+                user=owner,
             )
 
         text_intent = anchor_context.get("text_intent") or ""
@@ -234,7 +263,6 @@ class PlaylistOrchestrator:
                 bpm_range=[bpm_range[0], bpm_range[1]],
                 key=str(music_params.get("key", "auto")),
             )
-        owner = self.db.query(User).filter(User.id == owner_id).first()
         owner_tenant = owner.tenant_id if owner else app_settings.default_tenant_id
 
         playlist = Playlist(
@@ -275,7 +303,7 @@ class PlaylistOrchestrator:
             step_moods = list(base["moods"])
             step_genres = list(base["genres"])
 
-            prompt_data = await self.minimax.build_music_prompt(
+            prompt_data = await routed_build_music_prompt(
                 moods=step_moods,
                 genres=step_genres,
                 step=step,
@@ -310,13 +338,15 @@ class PlaylistOrchestrator:
                 music_result.audio_bytes, work_key, "audio/mpeg"
             )
             content_hash = hashlib.sha256(music_result.audio_bytes).hexdigest()
+            duration, clip_status = stamp_playlist_audio(music_result.audio_bytes, track_duration)
 
             work = Work(
                 owner_id=owner_id,
                 title=f"Track {step}",
                 audio_url=audio_url,
                 storage_key=storage_key,
-                duration=track_duration,
+                duration=duration,
+                post_process_status=clip_status,
                 moods=step_moods,
                 genres=step_genres,
                 arousal=target_av[0],
@@ -348,7 +378,6 @@ class PlaylistOrchestrator:
                     "target_av": list(target_av),
                 },
                 m3_request={
-                    "model": settings.minimax_chat_model,
                     "prompt_data": prompt_data,
                     "journey_step": step,
                     "waypoints": waypoints,
@@ -356,17 +385,17 @@ class PlaylistOrchestrator:
                     "preset_id": anchor_context.get("preset_id"),
                     "generation_mode": "prompt_journey",
                 },
-                music_request={
-                    "model": music_result.model,
-                    "prompt": music_result.prompt,
-                    "seed": gen_seed,
-                    "is_instrumental": instrumental,
-                    "task_id": music_result.task_id,
-                    "bpm_range": list(bpm_range),
-                    "key": music_params.get("key", "auto"),
-                    "duration_preference": music_params.get("duration_preference", "medium"),
-                    "text_intent": text_intent,
-                },
+                music_request=playlist_music_request(
+                    music_result,
+                    seed=gen_seed,
+                    extra={
+                        "is_instrumental": instrumental,
+                        "bpm_range": list(bpm_range),
+                        "key": music_params.get("key", "auto"),
+                        "duration_preference": music_params.get("duration_preference", "medium"),
+                        "text_intent": text_intent,
+                    },
+                ),
                 output_meta={
                     "audio_url": audio_url,
                     "sha256": content_hash,
@@ -539,7 +568,7 @@ class PlaylistOrchestrator:
             )
             target_av = target_av_for_step(step, steps, waypoints, target_curve)
 
-            prompt_data = await self.minimax.build_music_prompt(
+            prompt_data = await routed_build_music_prompt(
                 moods=step_analysis["moods"],
                 genres=step_analysis["genres"],
                 step=step,
@@ -572,13 +601,15 @@ class PlaylistOrchestrator:
                 music_result.audio_bytes, work_key, "audio/mpeg"
             )
             content_hash = hashlib.sha256(music_result.audio_bytes).hexdigest()
+            duration, clip_status = stamp_playlist_audio(music_result.audio_bytes, track_duration)
 
             work = Work(
                 owner_id=owner_id,
                 title=f"Track {step}",
                 audio_url=audio_url,
                 storage_key=storage_key,
-                duration=track_duration,
+                duration=duration,
+                post_process_status=clip_status,
                 moods=step_analysis["moods"],
                 genres=step_analysis["genres"],
                 arousal=step_analysis.get("arousal"),
@@ -614,21 +645,20 @@ class PlaylistOrchestrator:
                     "target_av": list(target_av),
                 },
                 m3_request={
-                    "model": settings.minimax_chat_model,
                     "prompt_data": prompt_data,
                     "journey_step": step,
                     "waypoints": waypoints,
                 },
-                music_request={
-                    "model": music_result.model,
-                    "prompt": music_result.prompt,
-                    "seed": seed,
-                    "is_instrumental": instrumental,
-                    "task_id": music_result.task_id,
-                    "bpm_range": list(bpm_range),
-                    "key": music_params.get("key", "auto"),
-                    "duration_preference": music_params.get("duration_preference", "medium"),
-                },
+                music_request=playlist_music_request(
+                    music_result,
+                    seed=seed,
+                    extra={
+                        "is_instrumental": instrumental,
+                        "bpm_range": list(bpm_range),
+                        "key": music_params.get("key", "auto"),
+                        "duration_preference": music_params.get("duration_preference", "medium"),
+                    },
+                ),
                 output_meta={
                     "audio_url": audio_url,
                     "sha256": content_hash,

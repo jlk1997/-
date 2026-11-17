@@ -4,7 +4,7 @@
   gap: $space-sm;
   padding: $space-md;
   background: $obsidian;
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border-subtle;
   border-radius: $radius-lg;
   margin-bottom: $space-sm;
   box-shadow: $shadow-sm;
@@ -58,4 +58,17 @@
 
 .leaderboard-entry__play {
   flex-shrink: 0;
+}
+
+.leaderboard-entry__action {
+  flex-shrink: 0;
+  padding: 8rpx 16rpx;
+  border-radius: 999rpx;
+  background: rgba(212, 175, 106, 0.14);
+}
+
+.leaderboard-entry__action-label {
+  color: #d4af6a;
+  font-size: 22rpx;
+  font-weight: 600;
 }

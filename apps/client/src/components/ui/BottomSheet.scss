@@ -27,7 +27,7 @@
   max-height: 85vh;
   background: $surface-glass;
   border-radius: $radius-lg $radius-lg 0 0;
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border-subtle;
   border-bottom: none;
   animation: ui-sheet-slide-up 0.28s $ease-out;
   box-sizing: border-box;
@@ -40,7 +40,7 @@
 .ui-bottom-sheet__handle {
   width: 64rpx;
   height: 8rpx;
-  background: $border-ritual;
+  background: $border-subtle;
   border-radius: $radius-full;
   margin: $space-sm auto;
 }
@@ -81,7 +81,7 @@
 .ui-bottom-sheet__footer {
   flex-shrink: 0;
   padding: $space-sm $space-md $space-md;
-  border-top: 1rpx solid $border-ritual;
+  border-top: 1rpx solid $border-subtle;
   background: linear-gradient(180deg, rgba(5, 5, 8, 0.4) 0%, rgba(5, 5, 8, 0.92) 100%);
 }
 

@@ -20,6 +20,7 @@ export type ActivityEvent = {
   parent_title?: string;
   post_id?: string;
   status?: string;
+  target_user?: string;
 };
 
 type Props = {
@@ -27,10 +28,15 @@ type Props = {
 };
 
 export function ActivityFeedItem({ event }: Props) {
-  const { copy } = useLocale();
+  const { copy, locale } = useLocale();
   const d = copy.discoverUi;
 
   function open() {
+    if (event.type === "user_followed") {
+      const target = event.target_user;
+      if (target) Taro.navigateTo({ url: stackPage("user", { username: target }) });
+      return;
+    }
     if (event.type === "duel_started" && event.duel_id) {
       Taro.navigateTo({ url: socialPage("duel", { id: event.duel_id }) });
       return;
@@ -81,7 +87,7 @@ export function ActivityFeedItem({ event }: Props) {
       return d.activityCommentAdded.replace("{user}", user).replace("{title}", event.work_title || "");
     }
     if (event.type === "user_followed") {
-      return d.activityUserFollowed.replace("{user}", user).replace("{target}", (event as { target_user?: string }).target_user || "");
+      return d.activityUserFollowed.replace("{user}", user).replace("{target}", event.target_user || "");
     }
     return d.activityUnknown?.replace("{type}", event.type) || event.type;
   }
@@ -107,7 +113,11 @@ export function ActivityFeedItem({ event }: Props) {
       </View>
       <View className="activity-item__body">
         <Text className="activity-item__text">{label()}</Text>
-        {event.message ? <Text className="activity-item__quote">「{event.message}」</Text> : null}
+        {event.message ? (
+          <Text className="activity-item__quote">
+            {locale === "en" ? `"${event.message}"` : `「${event.message}」`}
+          </Text>
+        ) : null}
         {time ? <Text className="activity-item__time">{time}</Text> : null}
       </View>
     </View>

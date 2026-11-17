@@ -94,10 +94,27 @@ def list_templates(db: Session = Depends(get_db)):
     return eco.list_recipe_templates(db)
 
 
+class RecipeFromWorkBody(BaseModel):
+    title: str | None = Field(default=None, max_length=120)
+    price_credits: int = Field(default=0, ge=0, le=50)
+
+
 @router.post("/templates")
 def create_template(payload: RecipeTemplateCreate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     return eco.create_recipe_template(
         db, user, title=payload.title, description=payload.description, spec=payload.spec, price_credits=payload.price_credits
+    )
+
+
+@router.post("/works/{work_id}/recipe")
+def publish_recipe_from_work(
+    work_id: str,
+    payload: RecipeFromWorkBody,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return eco.publish_recipe_from_work(
+        db, user, work_id, title=payload.title, price_credits=payload.price_credits
     )
 
 

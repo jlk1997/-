@@ -12,6 +12,18 @@
   padding-bottom: 20rpx;
 }
 
+.mood-radio--guest {
+  border-color: rgba(212, 175, 106, 0.28);
+}
+
+.mood-radio__item--playing {
+  background: rgba(212, 175, 106, 0.08);
+  margin: 0 -12rpx;
+  padding-left: 12rpx;
+  padding-right: 12rpx;
+  border-radius: $radius-sm;
+}
+
 .mood-radio__head {
   display: flex;
   align-items: center;
@@ -20,15 +32,38 @@
 }
 
 .mood-radio__title {
+  flex: 1;
   font-size: 30rpx;
   font-weight: $font-weight-semibold;
   color: $text;
+}
+
+.mood-radio__of-day {
+  flex-shrink: 0;
+  font-size: 22rpx;
+  color: $gold;
+  letter-spacing: 0.06em;
+}
+
+.mood-radio__rules {
+  display: block;
+  font-size: 22rpx;
+  color: $muted;
+  line-height: 1.45;
+  margin-bottom: 12rpx;
 }
 
 .mood-radio__empty {
   font-size: 26rpx;
   color: $muted;
   line-height: 1.45;
+}
+
+.mood-radio__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+  margin-top: 16rpx;
 }
 
 .mood-radio__list {

@@ -79,11 +79,13 @@ export function createAudioEngine(callbacks: AudioCallbacks): AudioEngine {
     await new Promise<void>((resolve, reject) => {
       const instance = new Hls({
         xhrSetup: (xhr, reqUrl) => {
+          const target = typeof reqUrl === "string" ? reqUrl : "";
+          // Presigned object URLs already carry their own signature. An Authorization
+          // header on the same request makes the store reject the segment with 400.
+          if (target.includes("X-Amz-") || target.includes("/vibe-sorcery/")) return;
           const headers = authHeader();
           Object.entries(headers).forEach(([k, v]) => xhr.setRequestHeader(k, v));
-          if (typeof reqUrl === "string" && reqUrl.includes("ticket=")) {
-            xhr.withCredentials = false;
-          }
+          if (target.includes("ticket=")) xhr.withCredentials = false;
         },
       });
 

@@ -6,16 +6,21 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 48rpx;
+  box-sizing: border-box;
+  padding: 16PX;
+  overflow: auto;
 }
 
 .privacy-gate__card {
   width: 100%;
-  max-width: 640rpx;
+  max-width: 420PX;
+  box-sizing: border-box;
+  max-height: calc(100vh - 32PX);
+  overflow: auto;
   background: #12121c;
   border: 1rpx solid rgba(212, 175, 106, 0.2);
   border-radius: 24rpx;
-  padding: 48rpx;
+  padding: 24PX 20PX;
 }
 
 .privacy-gate__title {

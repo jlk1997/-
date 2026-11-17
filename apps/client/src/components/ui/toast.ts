@@ -1,4 +1,5 @@
 import Taro from "@tarojs/taro";
+import { ApiError } from "../../services/api";
 
 type ToastKind = "success" | "error" | "info" | "none";
 
@@ -12,5 +13,15 @@ export function showSuccess(title: string) {
 }
 
 export function showError(title: string) {
-  showToast(title, "error", 2800);
+  showToast(title, "none", 2800);
+}
+
+export function messageFromError(err: unknown, fallback: string) {
+  if (err instanceof ApiError && err.message) return err.message;
+  if (err instanceof Error && err.message) return err.message;
+  return fallback;
+}
+
+export function toastFromError(err: unknown, fallback: string) {
+  showError(messageFromError(err, fallback));
 }

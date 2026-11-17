@@ -14,14 +14,16 @@ type Props = {
   track?: PlayerTrack;
   queue?: PlayerTrack[];
   onClick?: () => void;
+  actionLabel?: string;
+  onAction?: () => void;
 };
 
-export function LeaderboardEntry({ rank, title, author, coverUrl, likeCount, likesLabel, track, queue, onClick }: Props) {
+export function LeaderboardEntry({ rank, title, author, coverUrl, likeCount, likesLabel, track, queue, onClick, actionLabel, onAction }: Props) {
   return (
     <View className="leaderboard-entry" onClick={onClick}>
       <RankBadge rank={rank} />
       {coverUrl ? (
-        <Image className="leaderboard-entry__cover" src={coverUrl} mode="aspectFill" />
+        <Image className="leaderboard-entry__cover" src={coverUrl} mode="aspectFill" lazyLoad />
       ) : (
         <View className="leaderboard-entry__cover leaderboard-entry__cover--fallback">
           <Icon name="music" accent />
@@ -37,6 +39,17 @@ export function LeaderboardEntry({ rank, title, author, coverUrl, likeCount, lik
           </View>
         )}
       </View>
+      {actionLabel && onAction ? (
+        <View
+          className="leaderboard-entry__action"
+          onClick={(e) => {
+            e.stopPropagation();
+            onAction();
+          }}
+        >
+          <Text className="leaderboard-entry__action-label">{actionLabel}</Text>
+        </View>
+      ) : null}
       {track && (
         <View className="leaderboard-entry__play" onClick={(e) => e.stopPropagation()}>
           <PlayTrackButton track={track} queue={queue} />

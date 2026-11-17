@@ -6,12 +6,14 @@ import { useLocale } from "@vibe-sorcery/i18n";
 import { workToPlayerTrack } from "@vibe-sorcery/types";
 import { PageShell, SectionLabel } from "../../../components/PageShell";
 import { WorkCoverCard } from "../../../components/community/WorkCoverCard";
+import { OfficialListenShelf } from "../../../components/community/OfficialListenShelf";
 import { CreatorChip } from "../../../components/community/CreatorChip";
 import { PostSnippetCard } from "../../../components/community/PostSnippetCard";
 import { DerivativeSheet } from "../../../components/studio/DerivativeSheet";
 import { EmptyState, LoadingSkeleton, SearchField, StatPill } from "../../../components/ui";
 import { vibeApi } from "../../../services/api";
 import { requireAuth } from "../../../utils/auth";
+import { canRemixWork } from "../../../utils/remixLicense";
 import "./index.scss";
 
 export default function SearchPage() {
@@ -60,7 +62,14 @@ export default function SearchPage() {
     <PageShell label={copy.nav.search} title={s.title} subtitle={s.subtitle} wide immersive ambient noPadTop>
       <SearchField placeholder={s.placeholder} value={q} onInput={(e) => setQ(e.detail.value)} />
       {!hasQuery && !loading && (
-        <EmptyState iconName="search" title={s.hintTitle} description={s.hint} className="search-empty-hint" />
+        <EmptyState
+          iconName="search"
+          title={s.hintTitle}
+          description={s.hint}
+          className="search-empty-hint"
+          actionLabel={copy.tabBar.feed}
+          onAction={() => Taro.switchTab({ url: "/pages/feed/index" })}
+        />
       )}
       {hasQuery && !loading && results && totalResults > 0 && (
         <View className="search-stats">
@@ -68,7 +77,18 @@ export default function SearchPage() {
         </View>
       )}
       {loading && <LoadingSkeleton count={3} variant="line" />}
-      {noResults && <EmptyState iconName="search" title={s.empty} description={s.emptyHint} />}
+      {noResults && (
+        <>
+          <OfficialListenShelf query={trimmed} title={copy.discoverUi.officialShelf} />
+          <EmptyState
+            iconName="search"
+            title={s.empty}
+            description={s.emptyHint}
+            actionLabel={copy.tabBar.feed}
+            onAction={() => Taro.switchTab({ url: "/pages/feed/index" })}
+          />
+        </>
+      )}
       {results && results.users.length > 0 && (
         <View className="search-section">
           <SectionLabel>{s.creators}</SectionLabel>
@@ -100,10 +120,14 @@ export default function SearchPage() {
                   hlsReady={!!w.hls_url}
                   track={workToPlayerTrack(w, { source: "search" })}
                   queue={playQueue}
-                  onRemix={() => {
-                    if (!requireAuth()) return;
-                    setDerivative({ workId: w.id, title: w.title });
-                  }}
+                  onRemix={
+                    canRemixWork(w)
+                      ? () => {
+                          if (!requireAuth("/packageStack/pages/search/index")) return;
+                          setDerivative({ workId: w.id, title: w.title });
+                        }
+                      : undefined
+                  }
                 />
               </View>
             ))}

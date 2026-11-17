@@ -17,13 +17,23 @@ class MarkReadRequest(BaseModel):
     all: bool = False
 
 
+@router.get("/unread")
+def get_unread_count(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return {"unread_count": notification_service.unread_count(db, user.id)}
+
+
 @router.get("")
 def get_notifications(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     rows = notification_service.list_notifications(db, user.id)
-    unread = notification_service.unread_count(db, user.id)
+    unread = sum(1 for n in rows if n.read_at is None)
+    if len(rows) >= 50:
+        unread = notification_service.unread_count(db, user.id)
     return {
         "unread_count": unread,
         "items": [

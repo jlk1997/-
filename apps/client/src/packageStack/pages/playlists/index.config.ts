@@ -1,4 +1,3 @@
 export default {
-  navigationBarTitleText: "Vibe Sorcery",
-  enablePullDownRefresh: true,
+  navigationBarTitleText: "歌单",
 };

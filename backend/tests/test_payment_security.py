@@ -11,6 +11,7 @@ from app.services.payment_orders import complete_paid_order, register_pending_or
 from app.services.payment_security import (
     assert_order_payable,
     validate_alipay_notify_fields,
+    validate_stripe_session_fields,
     validate_wechat_notify_fields,
 )
 
@@ -127,3 +128,93 @@ def test_assert_order_payable_states():
     assert assert_order_payable(row) == "already_paid"
     row.status = "expired"
     assert assert_order_payable(row) == "invalid_status:expired"
+
+
+def test_stripe_session_amount_mismatch():
+    row = PaymentOrder(
+        user_id=uuid.uuid4(),
+        pack_id="pack_10",
+        channel="stripe",
+        out_trade_no="stp_test",
+        amount_fen=999,
+        currency="USD",
+        status="pending",
+        expires_at=datetime.utcnow() + timedelta(hours=2),
+    )
+    session = {
+        "metadata": {"pack_id": "pack_10"},
+        "payment_status": "paid",
+        "currency": "usd",
+        "amount_total": 500,
+    }
+    assert validate_stripe_session_fields(session, row) == "amount_mismatch"
+
+
+def test_stripe_session_valid():
+    row = PaymentOrder(
+        user_id=uuid.uuid4(),
+        pack_id="pack_10",
+        channel="stripe",
+        out_trade_no="stp_test2",
+        amount_fen=999,
+        currency="USD",
+        status="pending",
+        expires_at=datetime.utcnow() + timedelta(hours=2),
+    )
+    session = {
+        "metadata": {"pack_id": "pack_10"},
+        "payment_status": "paid",
+        "currency": "usd",
+        "amount_total": 999,
+    }
+    assert validate_stripe_session_fields(session, row) is None
+
+
+def test_stripe_session_currency_mismatch():
+    row = PaymentOrder(
+        user_id=uuid.uuid4(),
+        pack_id="pack_10",
+        channel="stripe",
+        out_trade_no="stp_test3",
+        amount_fen=999,
+        currency="USD",
+        status="pending",
+        expires_at=datetime.utcnow() + timedelta(hours=2),
+    )
+    session = {
+        "metadata": {"pack_id": "pack_10"},
+        "payment_status": "paid",
+        "currency": "eur",
+        "amount_total": 999,
+    }
+    assert validate_stripe_session_fields(session, row) == "currency_mismatch"
+
+
+def test_stripe_session_pack_mismatch():
+    row = PaymentOrder(
+        user_id=uuid.uuid4(),
+        pack_id="pack_10",
+        channel="stripe",
+        out_trade_no="stp_test4",
+        amount_fen=999,
+        currency="USD",
+        status="pending",
+        expires_at=datetime.utcnow() + timedelta(hours=2),
+    )
+    session = {
+        "metadata": {"pack_id": "pack_50"},
+        "payment_status": "paid",
+        "currency": "usd",
+        "amount_total": 999,
+    }
+    assert validate_stripe_session_fields(session, row) == "pack_mismatch"
+
+
+def test_audit_product_prices():
+    from app.services.billing import audit_product_prices
+
+    problems = audit_product_prices()
+    # After fixing pack_10 test price, no problems should remain
+    assert isinstance(problems, list)
+    for p in problems:
+        assert "pack_10" not in p or "amount_fen=1" not in p, f"Test price leak: {p}"

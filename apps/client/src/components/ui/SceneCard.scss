@@ -2,7 +2,7 @@
 .ui-scene-card {
   padding: $space-md $space-sm;
   border-radius: $radius-lg;
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border-subtle;
   background: $obsidian;
   overflow: hidden;
   position: relative;
@@ -16,11 +16,11 @@
   }
 
   &--calm::after {
-    background: linear-gradient(135deg, $gold 0%, $teal-mood 100%);
+    background: linear-gradient(135deg, $teal-mood 0%, rgba(147, 130, 180, 0.35) 100%);
   }
 
   &--hope::after {
-    background: linear-gradient(135deg, $gold 0%, rgba(147, 130, 180, 0.5) 100%);
+    background: linear-gradient(135deg, rgba(147, 130, 180, 0.5) 0%, $teal-mood 100%);
   }
 
   &--peace::after {

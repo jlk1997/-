@@ -18,6 +18,10 @@ export type JobPayload = {
   compose_eta_seconds?: number | null;
   priority_lane?: boolean | null;
   tracker_error?: "connection" | "not_found";
+  /** Set on the update that closes the tracker. A closed failure must stay visible. */
+  trackerClosed?: boolean;
+  /** No progress for two minutes. The song is still running; the user can leave. */
+  stalled?: boolean;
 };
 
 export type JobUpdateHandler = (data: JobPayload) => void;
@@ -26,6 +30,8 @@ const POLL_INITIAL_MS = 1000;
 const POLL_MAX_MS = 4000;
 const POLL_BACKOFF = 1.35;
 const POLL_FAIL_THRESHOLD = 3;
+const SILENCE_POLL_MS = 45_000;
+const STALL_NOTICE_MS = 120_000;
 
 const terminal = (status: string) => ["completed", "failed", "cancelled"].includes(status);
 
@@ -55,6 +61,21 @@ function createJobTracker(jobId: string, broadcast: (data: JobPayload) => void):
   let finished = false;
   let lastFingerprint = "";
   let pollFailStreak = 0;
+  let lastChangeAt = Date.now();
+  let stallNotified = false;
+  let silencePolled = false;
+  let lastGood: JobPayload = { status: "running", progress: 0 };
+  let watchdog: ReturnType<typeof setInterval> | null = null;
+
+  const noteChange = (data: JobPayload) => {
+    const fp = payloadFingerprint(data);
+    if (fp !== lastFingerprint) {
+      lastFingerprint = fp;
+      lastChangeAt = Date.now();
+      stallNotified = false;
+      silencePolled = false;
+    }
+  };
 
   const emit = (data: JobPayload) => {
     if (stopped) return;
@@ -63,18 +84,29 @@ function createJobTracker(jobId: string, broadcast: (data: JobPayload) => void):
       return;
     }
     if (data.error === "Job not found") {
-      broadcast({ status: "failed", progress: 0, tracker_error: "not_found" });
+      broadcast({ status: "failed", progress: 0, tracker_error: "not_found", trackerClosed: true });
       finished = true;
       stopPoll();
       return;
     }
     if (data.error) return;
     pollFailStreak = 0;
-    broadcast(data);
-    if (terminal(data.status)) {
+    noteChange(data);
+    lastGood = data;
+    const closing = terminal(data.status);
+    broadcast(closing ? { ...data, trackerClosed: true } : data);
+    if (closing) {
       finished = true;
       stopPoll();
     }
+  };
+
+  const forceStatusCheck = () => {
+    void request<JobPayload>(`/jobs/${jobId}`)
+      .then((data) => {
+        if (!stopped && !finished) emit(data);
+      })
+      .catch(() => {});
   };
 
   const stopPoll = () => {
@@ -122,7 +154,6 @@ function createJobTracker(jobId: string, broadcast: (data: JobPayload) => void):
           );
         } else {
           pollDelay = isComposingPhase(data.phase) ? POLL_INITIAL_MS : 1500;
-          lastFingerprint = fp;
         }
         emit(data);
         if (terminal(data.status)) return;
@@ -197,9 +228,23 @@ function createJobTracker(jobId: string, broadcast: (data: JobPayload) => void):
     startPoll();
   }
 
+  watchdog = setInterval(() => {
+    if (stopped || finished) return;
+    const silent = Date.now() - lastChangeAt;
+    if (silent >= SILENCE_POLL_MS && !silencePolled) {
+      silencePolled = true;
+      forceStatusCheck();
+    }
+    if (silent >= STALL_NOTICE_MS && !stallNotified) {
+      stallNotified = true;
+      broadcast({ ...lastGood, stalled: true });
+    }
+  }, 5000);
+
   return () => {
     stopped = true;
     stopPoll();
+    if (watchdog) clearInterval(watchdog);
     ws?.close();
     ws = null;
   };

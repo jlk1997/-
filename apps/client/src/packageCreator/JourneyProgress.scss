@@ -1,0 +1,115 @@
+.creator-journey {
+  display: flex;
+  gap: 4rpx;
+  padding: $space-sm $space-xs;
+  border-radius: $radius-lg;
+  background: $obsidian;
+  border: 1rpx solid $border-subtle;
+}
+
+.creator-journey--steps {
+  margin-top: $space-xs;
+  padding: 10rpx $space-xs 8rpx;
+  background: transparent;
+  border-color: transparent;
+}
+
+.creator-journey--steps .creator-journey__node {
+  width: 32rpx;
+  height: 32rpx;
+}
+
+.creator-journey--steps .creator-journey__label {
+  font-size: 20rpx;
+}
+
+.creator-journey__now {
+  display: block;
+  margin: 8rpx $space-xs 0;
+  color: $gold;
+  font-size: 22rpx;
+}
+
+.creator-journey__item {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.creator-journey__item:active {
+  opacity: 0.75;
+}
+
+.creator-journey__rail {
+  width: 100%;
+  display: flex;
+  align-items: center;
+}
+
+.creator-journey__node {
+  width: 40rpx;
+  height: 40rpx;
+  border-radius: 999rpx;
+  border: 1rpx solid $border;
+  background: $surface;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.creator-journey__node--done,
+.creator-journey__node--current {
+  border-color: $border-subtle;
+  background: $gold-muted;
+}
+
+.creator-journey__node--current {
+  box-shadow: 0 0 0 4rpx rgba(212, 175, 106, 0.22);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .creator-journey__node--current {
+    animation: creator-step-pulse 1.8s ease-in-out infinite;
+  }
+}
+
+@keyframes creator-step-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 4rpx rgba(212, 175, 106, 0.18);
+  }
+  50% {
+    box-shadow: 0 0 0 8rpx rgba(212, 175, 106, 0.08);
+  }
+}
+
+.creator-journey__num {
+  color: $gold;
+  font-size: 20rpx;
+  font-weight: 700;
+}
+
+.creator-journey__line {
+  flex: 1;
+  height: 2rpx;
+  background: $border;
+}
+
+.creator-journey__line--on {
+  background: $gold;
+}
+
+.creator-journey__label {
+  margin-top: 8rpx;
+  color: $muted;
+  font-size: 22rpx;
+  text-align: center;
+  line-height: 1.3;
+}
+
+.creator-journey__label--on {
+  color: $gold;
+}

@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Uploa
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_scope
+from app.config import settings
 from app.api.rate_limits import check_generation_rate_limit
 from app.services.legal import require_ai_notice
 from app.api.schemas import ApplyPresetRequest
@@ -15,9 +16,7 @@ from app.core.music_intent_parser import parse_music_intent
 from app.core.music_prompt_builder import MusicCreativeSpec, build_minimax_prompt
 from app.core.music_spec_resolver import resolve_creative_spec
 from app.core.sound_recipe_options import SOUND_RECIPE_OPTIONS
-from app.integrations.minimax.client import minimax_client
 from app.integrations.minimax.cover import cover_client
-from app.integrations.minimax.image import image_client
 from app.models.schemas import GenerationJob, User, Work
 from app.services.credits import COVER_COST, LYRICS_COST
 from app.services.generation_gate import charge_generation_credits, refund_charged_credits, with_credits_charged
@@ -53,6 +52,13 @@ class LyricsGenerateRequest(BaseModel):
     language: str = "zh"
 
 
+class LyricsReviseRequest(BaseModel):
+    lyrics: str = Field(min_length=1, max_length=8000)
+    instruction: str = Field(min_length=1, max_length=500)
+    line_index: int | None = None
+    language: str = "zh"
+
+
 class IntentPolishRequest(BaseModel):
     text_intent: str = Field(min_length=3, max_length=300)
 
@@ -78,6 +84,7 @@ class MusicCoverRequest(BaseModel):
     lyrics: str | None = Field(default=None, max_length=8000)
     cover_mode: Literal["one_step", "two_step"] = "one_step"
     modified_lyrics: str | None = Field(default=None, max_length=3500)
+    style_lock: bool = False
 
 
 class CoverImageRequest(BaseModel):
@@ -122,8 +129,10 @@ async def plan_journey(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return await minimax_client.plan_journey(
-        payload.text_intent, payload.steps, db=db, user_id=str(user.id)
+    from app.integrations.vendors.router import plan_journey as routed_plan_journey
+
+    return await routed_plan_journey(
+        db=db, text_intent=payload.text_intent, steps=payload.steps, user_id=str(user.id)
     )
 
 
@@ -176,11 +185,13 @@ async def lyrics_generate(
         raise HTTPException(status_code=400, detail=err)
     charged = charge_generation_credits(db, user.id, cost=LYRICS_COST)
     try:
-        result = await minimax_client.generate_lyrics(
+        from app.integrations.vendors.router import generate_lyrics as routed_generate_lyrics
+
+        result = await routed_generate_lyrics(
+            db=db,
             theme=payload.theme,
             moods=payload.moods,
             language=payload.language,
-            db=db,
             user_id=str(user.id),
         )
     except Exception:
@@ -196,15 +207,47 @@ async def lyrics_generate(
     }
 
 
+@router.post("/lyrics/revise")
+async def lyrics_revise(
+    payload: LyricsReviseRequest,
+    user: User = Depends(require_scope("generate")),
+    db: Session = Depends(get_db),
+):
+    require_ai_notice(user)
+    lines = payload.lyrics.splitlines()
+    focus = ""
+    if payload.line_index is not None and 0 <= payload.line_index < len(lines):
+        focus = lines[payload.line_index]
+    system = (
+        "You revise song lyrics. Keep structure tags like [Verse]/[Chorus]. "
+        "Return plain lyrics only, no commentary."
+    )
+    user_msg = (
+        f"Language: {payload.language}\nInstruction: {payload.instruction}\n"
+        f"{'Focus line: ' + focus + chr(10) if focus else ''}"
+        f"Current lyrics:\n{payload.lyrics}"
+    )
+    from app.integrations.vendors.router import chat as routed_chat
+
+    revised = await routed_chat(
+        db=db,
+        messages=[{"role": "system", "content": system}, {"role": "user", "content": user_msg}],
+        user_id=str(user.id),
+    )
+    return {"lyrics": revised.strip() or payload.lyrics}
+
+
 @router.post("/intent/polish")
 async def polish_intent(
     payload: IntentPolishRequest,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    polished = await minimax_client.polish_text_intent(
-        payload.text_intent,
+    from app.integrations.vendors.router import polish_text_intent as routed_polish
+
+    polished = await routed_polish(
         db=db,
+        text_intent=payload.text_intent,
         user_id=str(user.id),
     )
     return {"text_intent": polished}
@@ -214,8 +257,14 @@ async def polish_intent(
 async def parse_intent(
     payload: IntentParseRequest,
     user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
-    parsed = await parse_music_intent(payload.text_intent, language=payload.language)
+    parsed = await parse_music_intent(
+        payload.text_intent,
+        language=payload.language,
+        db=db,
+        user_id=str(user.id),
+    )
     preview_prompt = build_minimax_prompt(parsed)
     return {
         "creative_spec": parsed.model_dump(),
@@ -227,6 +276,7 @@ async def parse_intent(
 async def preview_prompt(
     payload: PromptPreviewRequest,
     user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     cfg = payload.model_dump(exclude_none=True)
     if payload.creative_spec:
@@ -249,6 +299,8 @@ async def preview_prompt(
     spec = await resolve_creative_spec(
         cfg,
         parse_if_sparse=bool(payload.text_intent) and not has_chips,
+        db=db,
+        user_id=str(user.id),
     )
     return {
         "creative_spec": spec.model_dump(),
@@ -307,6 +359,7 @@ async def music_cover(
                 "lyrics": payload.lyrics,
                 "cover_mode": payload.cover_mode,
                 "modified_lyrics": payload.modified_lyrics,
+                "style_lock": payload.style_lock,
             },
             charged,
         ),
@@ -332,7 +385,9 @@ async def cover_image(
     cost = eco.charge_ai_cover(db, user)
 
     prompt = payload.prompt or f"Album cover, {', '.join((work.moods or [])[:3])}, emotional abstract art"
-    result = await image_client.generate_cover_image(prompt=prompt, db=db, user_id=str(user.id))
+    from app.integrations.vendors.router import generate_image as routed_generate_image
+
+    result = await routed_generate_image(prompt=prompt, db=db, user_id=str(user.id))
 
     if result.get("image_bytes"):
         from app.services.storage import get_storage_service
@@ -443,6 +498,21 @@ def trigger_post_process(
     return {"status": "queued", "work_id": work_id}
 
 
+def _apply_section_edits(sections: list[dict], human_edits: list) -> list[dict]:
+    overlay = {row["id"]: dict(row) for row in sections}
+    for edit in human_edits:
+        if not isinstance(edit, dict) or edit.get("kind") not in (None, "section"):
+            continue
+        sid = edit.get("section")
+        if not sid or sid not in overlay:
+            continue
+        if edit.get("start") is not None:
+            overlay[sid]["start"] = float(edit["start"])
+        if edit.get("end") is not None:
+            overlay[sid]["end"] = float(edit["end"])
+    return list(overlay.values())
+
+
 @router.get("/works/{work_id}/refine-hints")
 def work_refine_hints(
     work_id: str,
@@ -466,7 +536,17 @@ def work_refine_hints(
                     pass
             if music_key is None and blob.get("key"):
                 music_key = str(blob["key"])
+    from app.services.distribution.catalog import clip_windows
+    from app.services.lyrics_timeline import sections_from_lyrics
+
     suggested_intent = f"在《{work.title}》基础上微调节奏与情绪"
+    human_edits = []
+    if prov and isinstance(prov.output_meta, dict):
+        human_edits = list(prov.output_meta.get("human_edits") or [])
+    pps = work.post_process_status if isinstance(work.post_process_status, dict) else {}
+    lyrics = pps.get("lyrics")
+    if not lyrics and prov and isinstance(prov.music_request, dict):
+        lyrics = prov.music_request.get("lyrics")
     return {
         "work_id": str(work.id),
         "title": work.title,
@@ -476,6 +556,231 @@ def work_refine_hints(
         "valence": work.valence,
         "moods": work.moods or [],
         "suggested_intent": suggested_intent,
+        "sections": _apply_section_edits(
+            sections_from_lyrics(lyrics, getattr(work, "duration", None)),
+            human_edits,
+        ),
+        "clip_windows": clip_windows(getattr(work, "duration", None)),
+        "human_edits": human_edits,
+        "duration": getattr(work, "duration", None),
+        "waveform_url": pps.get("waveform_url"),
+        "audio_url": work.audio_url,
+        "remelt_explain": (pps.get("remelt") or {}).get("explain") if isinstance(pps.get("remelt"), dict) else None,
+        "stems": pps.get("stems") if isinstance(pps.get("stems"), dict) else {},
+        "sku_kind": pps.get("sku_kind"),
+    }
+
+
+class HumanEditBody(BaseModel):
+    kind: str = Field(default="section", max_length=32)
+    section: str | None = None
+    note: str | None = Field(default=None, max_length=200)
+    start: float | None = None
+    end: float | None = None
+
+
+class TransformBody(BaseModel):
+    semitones: float = Field(default=0, ge=-12, le=12)
+    tempo: float = Field(default=1.0, ge=0.5, le=2.0)
+
+
+class ExtendBody(BaseModel):
+    duration: int = Field(default=15, ge=15, le=30)
+
+
+@router.post("/works/{work_id}/human-edit")
+def record_human_edit(
+    work_id: str,
+    payload: HumanEditBody,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from datetime import datetime
+
+    from app.models.schemas import ProvenanceRecord
+
+    work = get_owned_work(db, work_id, user)
+    prov = db.query(ProvenanceRecord).filter(ProvenanceRecord.work_id == work.id).first()
+    entry = {
+        "kind": payload.kind,
+        "section": payload.section,
+        "note": payload.note,
+        "start": payload.start,
+        "end": payload.end,
+        "at": datetime.utcnow().isoformat(),
+    }
+    if not prov:
+        prov = ProvenanceRecord(
+            work_id=work.id,
+            pipeline_version=settings.pipeline_version,
+            record_type="human_edit",
+            output_meta={"human_edits": [entry]},
+        )
+        db.add(prov)
+    else:
+        meta = dict(prov.output_meta or {})
+        edits = list(meta.get("human_edits") or [])
+        edits.append(entry)
+        meta["human_edits"] = edits[-20:]
+        prov.output_meta = meta
+    db.commit()
+    return {"ok": True, "edit": entry}
+
+
+@router.post("/works/{work_id}/transform")
+def transform_work(
+    work_id: str,
+    payload: TransformBody,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from app.services.studio_edit import apply_transform
+
+    work = get_owned_work(db, work_id, user)
+    return apply_transform(db, user, work, semitones=payload.semitones, tempo=payload.tempo)
+
+
+@router.post("/works/{work_id}/master")
+def master_work(
+    work_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from app.services.studio_edit import apply_master
+
+    work = get_owned_work(db, work_id, user)
+    return apply_master(db, user, work)
+
+
+@router.post("/works/{work_id}/undo-edit")
+def undo_work_edit(
+    work_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from app.services.studio_edit import undo_last_audio_edit
+
+    work = get_owned_work(db, work_id, user)
+    return undo_last_audio_edit(db, user, work)
+
+
+@router.post("/works/{work_id}/extend")
+def extend_work(
+    work_id: str,
+    payload: ExtendBody,
+    user: User = Depends(require_scope("generate")),
+    db: Session = Depends(get_db),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+):
+    from app.services.credits import GENERATION_COST, credits_snapshot
+    from app.services.job_dispatch import dispatch_single
+
+    check_generation_rate_limit(user)
+    require_ai_notice(user)
+    existing = lookup_idempotent_job(db, user, idempotency_key)
+    if existing:
+        return {"job_id": str(existing.id), **credits_snapshot(db, user.id)}
+
+    work = get_owned_work(db, work_id, user)
+    charged = charge_generation_credits(db, user.id, cost=GENERATION_COST, defer_commit=True)
+    seconds = 15 if payload.duration < 23 else 30
+    job_config = with_credits_charged(
+        {
+            "text_intent": (
+                f"Continue the song “{work.title}” from the ending for about {seconds} seconds. "
+                "Keep the same melody, mood, and vocal timbre. Do not restart the arrangement."
+            ),
+            "seed_work_id": str(work.id),
+            "title": f"{work.title} · +{seconds}s",
+            "record_type": "extend",
+            "extend": True,
+            "extend_seconds": seconds,
+            "reference": {"work_id": str(work.id)},
+            "instrumental": False,
+        },
+        charged,
+    )
+    job = create_generation_job(
+        db,
+        user,
+        job_type="single",
+        config=job_config,
+        idempotency_key=idempotency_key,
+        status_message="续写中…",
+    )
+    dispatch_single(db, user.id, str(job.id), job.config)
+    db.refresh(job)
+    return {"job_id": str(job.id), "work_id": str(work.id), **credits_snapshot(db, user.id)}
+
+
+@router.post("/works/{work_id}/vocal-sku")
+def spawn_vocal_sku_route(
+    work_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from fastapi import HTTPException
+
+    from app.services.stem_assets import spawn_vocal_sku
+
+    work = get_owned_work(db, work_id, user)
+    try:
+        new_work = spawn_vocal_sku(db, work)
+    except ValueError as exc:
+        raise HTTPException(409, "需要先完成真分轨，才能导出清唱") from exc
+    return {"work_id": str(new_work.id), "parent_work_id": str(work.id), "title": new_work.title}
+
+
+@router.get("/works/{work_id}/stem-pack")
+def download_stem_pack(
+    work_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from fastapi import HTTPException
+    from fastapi.responses import Response
+
+    from app.services.stem_assets import stem_pack_zip
+
+    work = get_owned_work(db, work_id, user)
+    try:
+        payload = stem_pack_zip(work)
+    except ValueError as exc:
+        raise HTTPException(409, "需要先完成真分轨，才能下载分轨包") from exc
+    return Response(
+        content=payload,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{work_id}-stems.zip"'},
+    )
+
+
+@router.post("/works/{work_id}/instrumental-sku")
+def spawn_instrumental_sku_route(
+    work_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Accompaniment as its own listing — not mixed into the originality zip."""
+    from fastapi import HTTPException
+
+    from app.services.stem_assets import spawn_instrumental_sku
+    from app.workers.tasks import post_process_work_task
+
+    work = get_owned_work(db, work_id, user)
+    try:
+        new_work = spawn_instrumental_sku(db, work)
+    except ValueError as exc:
+        code = str(exc)
+        if code == "already_instrumental_sku":
+            raise HTTPException(409, "This work is already an instrumental SKU") from exc
+        raise HTTPException(409, "Demucs accompaniment is required before releasing an instrumental SKU") from exc
+    post_process_work_task.apply_async(args=[str(new_work.id), str(user.id)], queue="post_process")
+    return {
+        "work_id": str(new_work.id),
+        "parent_work_id": str(work.id),
+        "title": new_work.title,
+        "sku": "instrumental",
+        "audio_url": new_work.audio_url,
     }
 
 
@@ -500,10 +805,12 @@ async def remix_preview(
     original_prompt = ""
     if prov and prov.music_request:
         original_prompt = prov.music_request.get("prompt", "")
-    remix_data = await minimax_client.remix_prompt(
+    from app.integrations.vendors.router import remix_prompt as routed_remix_prompt
+
+    remix_data = await routed_remix_prompt(
+        db=db,
         original_prompt=original_prompt or source.title,
         user_intent=payload.remix_intent,
-        db=db,
         user_id=str(user.id),
     )
     return {

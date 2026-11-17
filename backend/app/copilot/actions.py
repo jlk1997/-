@@ -60,6 +60,14 @@ def build_studio_actions(tool_name: str, tool_result: dict[str, Any]) -> list[di
         if tool_result.get("pricing"):
             actions.append({"type": "show_paywall", "required": 0, "balance": None})
 
+    elif tool_name == "open_creator_os":
+        dest = str(tool_result.get("target") or tool_result.get("navigate") or "hub")
+        actions.append({"type": "navigate", "path": dest})
+
+    elif tool_name == "open_beautify":
+        dest = str(tool_result.get("navigate") or "/packageStudio/pages/workbench-lite/index")
+        actions.append({"type": "navigate", "path": dest})
+
     elif tool_name == "start_generation" and tool_result.get("estimate"):
         est = tool_result["estimate"]
         mode = tool_result.get("mode", "quickTrack")

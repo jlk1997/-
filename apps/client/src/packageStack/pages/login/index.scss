@@ -1,8 +1,11 @@
 @import "../../../styles/_utilities.scss";
+
 .login-page {
   display: flex;
   flex-direction: column;
-  padding-bottom: calc(var(--safe-bottom, 0px) + #{$space-2xl} + env(safe-area-inset-bottom, 16px));
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: $space-lg $space-md calc(var(--safe-bottom, 0px) + #{$space-2xl} + env(safe-area-inset-bottom, 24px));
   box-sizing: border-box;
 }
 
@@ -11,27 +14,8 @@
   flex-direction: column;
   align-items: center;
   text-align: center;
-  padding: $space-2xs 0;
-}
-
-.login-hero__orb {
-  width: 96rpx;
-  height: 96rpx;
-  border-radius: $radius-pill;
-  background: $gold-muted;
-  border: 2rpx solid $border-ritual;
-  box-shadow: $shadow-gold;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: $space-xs;
-}
-
-.login-hero__sigil {
-  color: $gold;
-  font-size: 48rpx;
-  font-family: var(--font-display);
-  line-height: 1;
+  gap: $space-2xs;
+  padding: $space-md 0 $space-sm;
 }
 
 .login-hero__logo {
@@ -40,52 +24,72 @@
   display: block;
 }
 
-.login-hero__tagline {
-  @extend .typo-meta;
-  margin-top: $space-2xs;
-  display: block;
-  max-width: 480rpx;
-}
-
 .login-hero__hint {
   @extend .typo-meta;
-  margin-top: $space-2xs;
   display: block;
   max-width: 520rpx;
   color: $muted;
   line-height: 1.45;
 }
 
-.login-features {
-  display: flex;
-  flex-direction: column;
-  gap: $space-2xs;
-  margin: $space-sm 0;
-}
-
 .login-form {
   display: flex;
   flex-direction: column;
-  gap: $space-xs;
+  gap: $space-sm;
   padding: $space-md !important;
   background: $obsidian !important;
-  border: 1rpx solid $border-ritual !important;
+  border: 1rpx solid $border-subtle !important;
   box-shadow: $shadow-sm;
+}
+
+.login-form__error {
+  display: block;
+  color: $danger;
+  font-size: var(--text-meta);
+  line-height: 1.4;
+}
+
+.login-reset-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: $space-sm;
+}
+
+.login-reset-head__title {
+  @extend .typo-h2;
+  font-family: var(--font-display);
+}
+
+.login-otp-row {
+  display: flex;
+  align-items: flex-end;
+  gap: $space-xs;
+}
+
+.login-otp-row__field {
+  flex: 1;
+  min-width: 0;
+
+  .ui-field {
+    margin-top: 0;
+  }
+}
+
+.login-otp-row .ui-btn {
+  flex-shrink: 0;
+  margin-bottom: 2rpx;
+}
+
+.login-forgot {
+  color: $gold;
+  font-size: var(--text-meta);
+  text-align: right;
+  padding: 0 $space-2xs;
 }
 
 .login-wechat {
   background: $wechat !important;
   border-color: $wechat !important;
   color: #fff !important;
-}
-
-.login-toggle {
-  color: $gold;
-  font-size: var(--text-body);
-  text-align: center;
-  margin-top: $space-md;
-  padding: $space-sm $space-md $space-xs;
-  display: block;
-  font-family: var(--font-display);
-  font-weight: $font-weight-semibold;
 }

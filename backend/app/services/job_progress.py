@@ -16,13 +16,21 @@ def job_to_response(
     task_reward: dict | None = None,
 ) -> JobResponse:
     remix_source = None
+    cfg = job.config or {}
     if job.job_type == "remix":
-        cfg = job.config or {}
         seed_id = cfg.get("seed_work_id")
         if seed_id:
             remix_source = RemixSourceResponse(
                 work_id=str(seed_id),
                 remix_intent=cfg.get("remix_intent"),
+                output_title=cfg.get("title"),
+            )
+    elif job.job_type in ("workbench_render", "lane_separate", "pack_preview") or cfg.get("workbench_session_id"):
+        seed_id = cfg.get("source_work_id") or cfg.get("seed_work_id")
+        if seed_id:
+            remix_source = RemixSourceResponse(
+                work_id=str(seed_id),
+                remix_intent="workbench",
                 output_title=cfg.get("title"),
             )
 
@@ -87,6 +95,22 @@ def update_job_pending_heartbeat(db: Session, job: GenerationJob) -> None:
     update_job_phase(db, job, progress=job.progress or 0.0, status_message=msg, phase=job.phase or "queued")
 
 
+def note_job_heartbeat(job: GenerationJob) -> None:
+    """Stamp the job so reconcile can tell a live worker from a dead one."""
+    from datetime import datetime
+
+    from sqlalchemy.orm.attributes import flag_modified
+
+    cfg = dict(job.config or {})
+    cfg["_heartbeat_at"] = datetime.utcnow().isoformat()
+    job.config = cfg
+    try:
+        flag_modified(job, "config")
+    except Exception:
+        pass
+    job.updated_at = datetime.utcnow()
+
+
 def update_job_phase(
     db: Session,
     job: GenerationJob,
@@ -96,8 +120,6 @@ def update_job_phase(
     current_step: int | None = None,
     phase: str | None = None,
 ) -> None:
-    from datetime import datetime
-
     job.progress = progress
     job.status_message = status_message
     if current_step is not None:
@@ -106,7 +128,7 @@ def update_job_phase(
         job.phase = phase
     if hasattr(job, "version"):
         job.version = int(job.version or 0) + 1
-    job.updated_at = datetime.utcnow()
+    note_job_heartbeat(job)
     db.commit()
     try:
         from app.services.job_events import publish_job_update

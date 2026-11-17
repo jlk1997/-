@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import logging
 import time
 import uuid
 from typing import Any
@@ -15,13 +16,17 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.models.schemas import CreditTransaction, User
+from app.models.schemas import CreditTransaction, PaymentOrder, User
 from app.services.credits import add_credits, grant_credits_with_transaction
 
+logger = logging.getLogger(__name__)
+
+STRIPE_CURRENCY = "USD"
+
 CREDIT_PACKS: dict[str, dict[str, Any]] = {
-    "pack_10": {"credits": 10, "amount_cents": 999, "amount_fen": 1, "label": "10 次创作额度"},
-    "pack_50": {"credits": 50, "amount_cents": 3999, "amount_fen": 2800, "label": "50 次创作额度"},
-    "pack_100": {"credits": 100, "amount_cents": 6999, "amount_fen": 4800, "label": "100 次创作额度"},
+    "pack_10": {"credits": 10, "amount_cents": 999, "amount_fen": 700, "label": "10 次"},
+    "pack_50": {"credits": 50, "amount_cents": 3999, "amount_fen": 2800, "label": "50 次"},
+    "pack_100": {"credits": 100, "amount_cents": 6999, "amount_fen": 4800, "label": "100 次"},
     "duel_season_pass": {
         "credits": 0,
         "duel_starts": 10,
@@ -41,7 +46,7 @@ SUBSCRIPTION_PLANS: dict[str, dict[str, Any]] = {
         "amount_fen": 2900,
         "monthly_credits": 30,
         "duration_days": 30,
-        "description": "每月 30 次创作额度 · 优先队列 · 专属场景模板",
+        "description": "每月 30 次 · 优先排队 · 专属风格",
     },
     "sub_yearly": {
         "type": "subscription",
@@ -50,7 +55,7 @@ SUBSCRIPTION_PLANS: dict[str, dict[str, Any]] = {
         "amount_fen": 26800,
         "monthly_credits": 30,
         "duration_days": 365,
-        "description": "全年会员 · 开通即赠 360 额度 · 约 8 折",
+        "description": "全年会员 · 开通即赠 360 次 · 约 8 折",
         "upfront_credits": 360,
     },
     "sub_pro_commercial": {
@@ -69,7 +74,7 @@ SUBSCRIPTION_PLANS: dict[str, dict[str, Any]] = {
         "amount_fen": 19900,
         "monthly_credits": 100,
         "duration_days": 30,
-        "description": "5 席位共享额度池 · 协作管理后台",
+        "description": "5 人共用次数 · 一起管理",
         "seats": 5,
     },
     "sub_api_starter": {
@@ -109,8 +114,8 @@ def is_subscription_product(product_id: str) -> bool:
 # 微信「虚拟支付-道具直购」道具ID 映射。
 #
 # 你在小程序后台「虚拟支付 -> 道具管理」为每个商品创建道具后，把返回的 productId
-# 填到这里（键=我们自己的商品ID，值=微信道具ID）。留空则回退用商品ID本身占位，
-# 此时沙箱/现网会因找不到道具而下单失败——这是预期的，配好后即通。
+# 填到这里（键=我们自己的商品ID，值=微信道具ID）。留空表示该商品在小程序里还没开卖，
+# 下单会被直接拒掉，定价页也会写「未配置」——配好后即通。
 #
 # 重要：道具在后台配置的价格(单位:分)必须与本商品的 amount_fen 完全一致，
 # 否则微信会因金额不符拒绝下单。
@@ -128,12 +133,22 @@ WECHAT_VPAY_GOODS: dict[str, str] = {
 
 
 def wechat_vpay_product_id(product_id: str) -> str:
-    """返回该商品对应的微信道具ID。
+    """返回该商品对应的微信道具ID；没配就返回空串。
 
-    优先级：.env 的 WECHAT_VPAY_GOODS_JSON > 代码内 WECHAT_VPAY_GOODS > 回退商品ID本身。
+    优先级：.env 的 WECHAT_VPAY_GOODS_JSON > 代码内 WECHAT_VPAY_GOODS。
+    绝不回退成商品ID本身：那个 ID 在小程序后台并不存在，拿它下单只会得到一张
+    看起来在走流程、实际永远付不掉的单子。
     """
     env_map = settings.wechat_vpay_goods_map
-    return env_map.get(product_id) or WECHAT_VPAY_GOODS.get(product_id) or product_id
+    return (env_map.get(product_id) or WECHAT_VPAY_GOODS.get(product_id) or "").strip()
+
+
+def wechat_vpay_ready(product_id: str) -> bool:
+    return bool(settings.wechat_vpay_enabled and wechat_vpay_product_id(product_id))
+
+
+def wechat_vpay_configured_products() -> list[str]:
+    return [pid for pid in all_purchasable_products() if wechat_vpay_product_id(pid)]
 
 
 def all_purchasable_products() -> dict[str, dict[str, Any]]:
@@ -146,6 +161,45 @@ def all_purchasable_products() -> dict[str, dict[str, Any]]:
     return merged
 
 
+# A test price that reaches production is a silent giveaway: the order looks paid and
+# the credits land, but the money never does. These bounds only need to be tight enough
+# to catch placeholder values like `amount_fen = 1`.
+MIN_AMOUNT_FEN = 100  # ¥1.00
+MIN_AMOUNT_CENTS = 50  # Stripe rejects charges under $0.50
+
+
+def audit_product_prices() -> list[str]:
+    """Return human-readable problems with the hardcoded price table (empty = healthy)."""
+    problems: list[str] = []
+    for pid, product in all_purchasable_products().items():
+        amount_fen = int(product.get("amount_fen") or 0)
+        amount_cents = int(product.get("amount_cents") or 0)
+        if amount_fen < MIN_AMOUNT_FEN:
+            problems.append(f"{pid}: amount_fen={amount_fen} is below the ¥{MIN_AMOUNT_FEN / 100:.2f} floor")
+        if amount_cents < MIN_AMOUNT_CENTS:
+            problems.append(
+                f"{pid}: amount_cents={amount_cents} is below the ${MIN_AMOUNT_CENTS / 100:.2f} Stripe floor"
+            )
+
+    # Bigger credit packs must never be cheaper per credit than smaller ones. A single
+    # mistyped digit breaks this long before it breaks the eyeball test.
+    packs = sorted(
+        ((pid, p) for pid, p in CREDIT_PACKS.items() if int(p.get("credits") or 0) > 0),
+        key=lambda item: int(item[1]["credits"]),
+    )
+    for field, unit in (("amount_fen", "fen"), ("amount_cents", "cents")):
+        previous: tuple[str, float] | None = None
+        for pid, pack in packs:
+            per_credit = int(pack.get(field) or 0) / int(pack["credits"])
+            if previous and per_credit > previous[1]:
+                problems.append(
+                    f"{pid}: {per_credit:.2f} {unit}/credit is more expensive than the smaller "
+                    f"pack {previous[0]} at {previous[1]:.2f} {unit}/credit"
+                )
+            previous = (pid, per_credit)
+    return problems
+
+
 def vpay_goods_report() -> list[dict[str, Any]]:
     """列出每个商品的道具映射状态与应配置的价格（分），供后台配置对照。"""
     report: list[dict[str, Any]] = []
@@ -156,8 +210,8 @@ def vpay_goods_report() -> list[dict[str, Any]]:
                 "product_id": pid,
                 "label": product.get("label", pid),
                 "amount_fen": product_amount_fen(product),
-                "wechat_product_id": mapped,
-                "configured": mapped != pid,
+                "wechat_product_id": mapped or None,
+                "configured": bool(mapped),
             }
         )
     return report
@@ -172,6 +226,7 @@ def list_plans() -> list[dict[str, Any]]:
             "wechat_enabled": settings.wechat_pay_enabled,
             "alipay_enabled": settings.alipay_enabled,
             "stripe_enabled": bool(settings.stripe_secret_key),
+            "wechat_vpay_enabled": wechat_vpay_ready(pid),
         }
         for pid, plan in SUBSCRIPTION_PLANS.items()
     ]
@@ -188,42 +243,51 @@ def list_packs() -> list[dict[str, Any]]:
             "stripe_enabled": bool(settings.stripe_secret_key),
             "wechat_enabled": settings.wechat_pay_enabled,
             "alipay_enabled": settings.alipay_enabled,
+            "wechat_vpay_enabled": wechat_vpay_ready(pid),
         }
         for pid, pack in CREDIT_PACKS.items()
     ]
 
 
 def list_payment_methods() -> dict[str, Any]:
-    mock = not (settings.stripe_secret_key or settings.wechat_pay_enabled or settings.alipay_enabled)
-    return {
-        "mock_mode": mock,
-        "channels": [
+    channels: list[dict[str, Any]] = []
+    if settings.wechat_pay_enabled or settings.wechat_vpay_enabled:
+        channels.append(
             {
                 "id": "wechat",
                 "label": "微信支付",
-                "enabled": settings.wechat_pay_enabled or mock,
+                "enabled": True,
                 "scenes": [
                     {"id": "native", "label": "扫码支付", "for": "web"},
                     {"id": "jsapi", "label": "小程序支付", "for": "miniprogram"},
                     {"id": "h5", "label": "H5 支付", "for": "mobile_web"},
                 ],
-            },
+            }
+        )
+    if settings.alipay_enabled:
+        channels.append(
             {
                 "id": "alipay",
                 "label": "支付宝",
-                "enabled": settings.alipay_enabled or mock,
+                "enabled": True,
                 "scenes": [
                     {"id": "web", "label": "电脑网站支付", "for": "web"},
                     {"id": "h5", "label": "手机网站支付", "for": "mobile_web"},
                 ],
-            },
+            }
+        )
+    if settings.stripe_secret_key:
+        channels.append(
             {
                 "id": "stripe",
                 "label": "Stripe（国际卡）",
-                "enabled": bool(settings.stripe_secret_key) or mock,
+                "enabled": True,
                 "scenes": [{"id": "checkout", "label": "信用卡", "for": "web"}],
-            },
-        ],
+            }
+        )
+    return {
+        "mock_mode": bool(settings.payment_mock_allowed),
+        "channels": channels,
     }
 
 
@@ -251,7 +315,17 @@ def create_mock_checkout(db: Session, user: User, pack_id: str) -> dict[str, Any
     }
 
 
-async def create_stripe_checkout(db: Session, user: User, pack_id: str) -> dict[str, Any]:
+def new_stripe_out_trade_no() -> str:
+    return f"stp{uuid.uuid4().hex[:24]}"
+
+
+async def create_stripe_checkout(
+    db: Session,
+    user: User,
+    pack_id: str,
+    *,
+    payment_terms_version: str | None = None,
+) -> dict[str, Any]:
     product = get_product(pack_id)
     if not product:
         raise HTTPException(status_code=400, detail="Unknown pack_id")
@@ -260,8 +334,12 @@ async def create_stripe_checkout(db: Session, user: User, pack_id: str) -> dict[
     if not settings.stripe_secret_key:
         return create_mock_checkout(db, user, pack_id)
 
+    from app.services.payment_orders import register_pending_order
+
     pack = product
     credits_meta = pack.get("credits") or pack.get("upfront_credits") or pack.get("monthly_credits") or 0
+    amount_cents = int(pack["amount_cents"])
+    out_trade_no = new_stripe_out_trade_no()
 
     payload = {
         "mode": "payment",
@@ -271,11 +349,28 @@ async def create_stripe_checkout(db: Session, user: User, pack_id: str) -> dict[
         "metadata[user_id]": str(user.id),
         "metadata[pack_id]": pack_id,
         "metadata[credits]": str(credits_meta),
-        "line_items[0][price_data][currency]": "usd",
-        "line_items[0][price_data][unit_amount]": str(pack["amount_cents"]),
+        "metadata[out_trade_no]": out_trade_no,
+        "payment_intent_data[metadata][out_trade_no]": out_trade_no,
+        "line_items[0][price_data][currency]": STRIPE_CURRENCY.lower(),
+        "line_items[0][price_data][unit_amount]": str(amount_cents),
         "line_items[0][price_data][product_data][name]": pack["label"],
         "line_items[0][quantity]": "1",
     }
+
+    if settings.stripe_tax_enabled:
+        payload["automatic_tax[enabled]"] = "true"
+        payload["tax_id_collection[enabled]"] = "true"
+
+    register_pending_order(
+        db,
+        user_id=user.id,
+        pack_id=pack_id,
+        channel="stripe",
+        out_trade_no=out_trade_no,
+        amount_fen=amount_cents,
+        currency=STRIPE_CURRENCY,
+        payment_terms_version=payment_terms_version,
+    )
 
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.post(
@@ -286,7 +381,12 @@ async def create_stripe_checkout(db: Session, user: User, pack_id: str) -> dict[
     if resp.status_code >= 400:
         raise HTTPException(status_code=502, detail="Stripe checkout failed")
     data = resp.json()
-    return {"mode": "stripe", "session_id": data.get("id"), "url": data.get("url")}
+    return {
+        "mode": "stripe",
+        "session_id": data.get("id"),
+        "url": data.get("url"),
+        "out_trade_no": out_trade_no,
+    }
 
 
 def fulfill_checkout(
@@ -454,6 +554,9 @@ async def create_subscription_checkout(db: Session, user: User, *, plan_id: str 
         "line_items[0][price]": stripe_price,
         "line_items[0][quantity]": "1",
     }
+    if settings.stripe_tax_enabled:
+        payload["automatic_tax[enabled]"] = "true"
+        payload["tax_id_collection[enabled]"] = "true"
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.post(
             "https://api.stripe.com/v1/checkout/sessions",
@@ -541,19 +644,7 @@ def handle_stripe_webhook_event(db: Session, event: dict[str, Any]) -> dict[str,
     if event_type == "checkout.session.completed":
         if obj.get("mode") == "subscription":
             return activate_subscription_from_checkout(db, obj)
-        metadata = obj.get("metadata") or {}
-        user_id = metadata.get("user_id") or obj.get("client_reference_id")
-        pack_id = metadata.get("pack_id")
-        stripe_session_id = obj.get("id")
-        if not user_id or not pack_id:
-            return {"received": True, "skipped": "missing pack metadata"}
-        return fulfill_payment(
-            db,
-            uuid.UUID(str(user_id)),
-            pack_id,
-            source="stripe",
-            stripe_session_id=str(stripe_session_id) if stripe_session_id else None,
-        )
+        return _fulfill_stripe_checkout_session(db, obj)
 
     if event_type == "invoice.paid":
         return grant_subscription_invoice(db, obj)
@@ -561,4 +652,125 @@ def handle_stripe_webhook_event(db: Session, event: dict[str, Any]) -> dict[str,
     if event_type in ("customer.subscription.deleted", "customer.subscription.updated"):
         return sync_stripe_subscription_status(db, obj)
 
+    if event_type in ("charge.refunded", "charge.dispute.created", "charge.dispute.closed"):
+        return _revoke_stripe_charge(db, obj, event_type)
+
     return {"received": True, "skipped": event_type}
+
+
+def _fulfill_stripe_checkout_session(db: Session, session: dict[str, Any]) -> dict[str, Any]:
+    """Fulfill a one-time Stripe Checkout Session against its PaymentOrder.
+
+    Never trusts `metadata.pack_id` on its own — the amount actually charged has to
+    match the order we recorded when the session was created.
+    """
+    from app.services.payment_orders import complete_paid_order
+    from app.services.payment_security import validate_stripe_session_fields
+
+    metadata = session.get("metadata") or {}
+    stripe_session_id = str(session.get("id") or "") or None
+    payment_intent = session.get("payment_intent")
+    payment_intent_id = str(payment_intent) if isinstance(payment_intent, str) else None
+    out_trade_no = str(metadata.get("out_trade_no") or "")
+
+    if out_trade_no:
+        row = db.query(PaymentOrder).filter(PaymentOrder.out_trade_no == out_trade_no).first()
+        if not row:
+            return {"received": True, "skipped": "order_not_found"}
+        err = validate_stripe_session_fields(session, row)
+        if err == "already_paid":
+            return {"received": True, "duplicate": out_trade_no}
+        if err == "order_expired":
+            row.status = "expired"
+            db.commit()
+            _alert_stripe_mismatch(out_trade_no, err, session)
+            return {"received": True, "skipped": err}
+        if err:
+            _alert_stripe_mismatch(out_trade_no, err, session)
+            return {"received": True, "skipped": err}
+        return complete_paid_order(
+            db,
+            out_trade_no,
+            provider_tx_id=stripe_session_id,
+            provider_ref=payment_intent_id,
+            source="stripe",
+        )
+
+    # Sessions created before orders were recorded still need to be honoured, but only
+    # after the charged amount is checked against the catalogue price.
+    user_id = metadata.get("user_id") or session.get("client_reference_id")
+    pack_id = metadata.get("pack_id")
+    if not user_id or not pack_id:
+        return {"received": True, "skipped": "missing pack metadata"}
+    product = get_product(str(pack_id))
+    if not product:
+        return {"received": True, "skipped": "unknown_pack"}
+    try:
+        amount_total = int(session.get("amount_total"))
+    except (TypeError, ValueError):
+        return {"received": True, "skipped": "invalid_amount_total"}
+    currency = str(session.get("currency") or STRIPE_CURRENCY).upper()
+    if currency != STRIPE_CURRENCY or amount_total != int(product["amount_cents"]):
+        _alert_stripe_mismatch(str(stripe_session_id), "legacy_amount_mismatch", session)
+        return {"received": True, "skipped": "amount_mismatch"}
+    return fulfill_payment(
+        db,
+        uuid.UUID(str(user_id)),
+        str(pack_id),
+        source="stripe",
+        stripe_session_id=stripe_session_id,
+    )
+
+
+def _revoke_stripe_charge(db: Session, charge: dict[str, Any], event_type: str) -> dict[str, Any]:
+    """Roll back credits when Stripe reports a refund or a dispute on a charge."""
+    from app.services.payment_orders import find_order_by_provider_ref, revoke_paid_order
+
+    if event_type == "charge.refunded" and not charge.get("refunded"):
+        # Partial refunds keep the order alive; a human decides what to claw back.
+        _alert_stripe_mismatch(str(charge.get("id") or ""), "partial_refund", charge)
+        return {"received": True, "skipped": "partial_refund"}
+
+    # `charge.dispute.*` delivers a Dispute object, `charge.refunded` a Charge object.
+    payment_intent = charge.get("payment_intent")
+    candidates = [
+        str(payment_intent) if isinstance(payment_intent, str) else "",
+        str((charge.get("metadata") or {}).get("out_trade_no") or ""),
+        str(charge.get("charge") or "") if isinstance(charge.get("charge"), str) else "",
+    ]
+    row = None
+    for candidate in candidates:
+        if not candidate:
+            continue
+        row = find_order_by_provider_ref(db, candidate)
+        if row:
+            break
+    if not row:
+        _alert_stripe_mismatch(candidates[0] or "unknown", f"{event_type}_unmatched", charge)
+        return {"received": True, "skipped": "order_not_found"}
+
+    reason = "dispute" if "dispute" in event_type else "refund"
+    if event_type == "charge.dispute.closed" and str(charge.get("status") or "") == "won":
+        return {"received": True, "skipped": "dispute_won"}
+    return {"received": True, **revoke_paid_order(db, row.out_trade_no, reason=reason)}
+
+
+def _alert_stripe_mismatch(reference: str, reason: str, payload: dict[str, Any]) -> None:
+    logger.error(
+        "stripe webhook needs review: reference=%s reason=%s amount_total=%s currency=%s",
+        reference,
+        reason,
+        payload.get("amount_total") or payload.get("amount"),
+        payload.get("currency"),
+    )
+    try:
+        from app.services.alerting import alert
+
+        alert(
+            "stripe_webhook_mismatch",
+            f"Stripe webhook {reason} for {reference}",
+            severity="error",
+            context={"reference": reference, "reason": reason},
+        )
+    except Exception:
+        pass

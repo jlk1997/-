@@ -1,0 +1,52 @@
+@import "../../styles/_utilities.scss";
+
+.lyrics-chat {
+  margin: $space-sm 0;
+  padding: $space-sm;
+  border-radius: $radius-md;
+  border: 1rpx solid rgba(212, 175, 106, 0.18);
+  background: rgba(18, 18, 28, 0.55);
+}
+
+.lyrics-chat__title {
+  display: block;
+  font-size: var(--text-body);
+  color: var(--fg);
+  margin-bottom: 4rpx;
+}
+
+.lyrics-chat__hint,
+.lyrics-chat__line-hint {
+  display: block;
+  color: var(--muted);
+  font-size: var(--text-meta);
+  margin-bottom: $space-xs;
+}
+
+.lyrics-chat__actions {
+  display: flex;
+  gap: $space-xs;
+  margin: $space-xs 0;
+}
+
+.lyrics-chat__draft {
+  margin-top: $space-xs;
+}
+
+.lyrics-chat__line {
+  padding: 8rpx 0;
+  border-bottom: 1rpx solid rgba(255, 255, 255, 0.04);
+}
+
+.lyrics-chat__line-text {
+  font-size: var(--text-body);
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.lyrics-chat__revise {
+  display: flex;
+  align-items: center;
+  gap: $space-xs;
+  margin-top: $space-sm;
+}

@@ -1,5 +1,6 @@
 import Taro from "@tarojs/taro";
-import { isTabRoute } from "../constants/routes";
+import { isStudioTabBarRoute, isTabRoute } from "../constants/routes";
+import { h5ActiveRoute } from "./h5Path";
 
 let reconcileLock = false;
 
@@ -10,7 +11,7 @@ function normalizePagePath(path: string): string {
 
 function currentHashRoute(): string {
   if (typeof window === "undefined") return "";
-  return normalizePagePath(window.location.hash.replace(/^#\/?/, ""));
+  return normalizePagePath(h5ActiveRoute());
 }
 
 function hashTabRoute(): string | null {
@@ -91,18 +92,25 @@ export function syncStackPageVisibility() {
       el.style.removeProperty("display");
       el.style.removeProperty("visibility");
       el.style.removeProperty("transform");
-      el.style.zIndex = "10";
+      el.style.zIndex = "300";
     } else if (el.classList.contains("taro_page_show")) {
       el.classList.add("taro_page_shade");
       el.classList.remove("taro_page_show");
       el.style.removeProperty("z-index");
     }
   });
+
+  if (isStudioTabBarRoute(activeRoute)) {
+    document.documentElement.classList.remove("h5-stack-open");
+  } else {
+    document.documentElement.classList.add("h5-stack-open");
+  }
 }
 
 /** Force correct tab page visibility when Taro router / tab bar get out of sync (H5). */
 export function syncTabPageVisibility() {
   if (process.env.TARO_ENV !== "h5" || typeof document === "undefined") return;
+  document.documentElement.classList.remove("h5-stack-open");
   if (isStackRoute()) return;
 
   const activeRoute = activeTabRoute();
@@ -144,6 +152,18 @@ export function syncH5PageVisibility() {
   else syncTabPageVisibility();
 }
 
+/** True when the H5 stack page for this route is actually in the DOM and shown. */
+export function h5StackPageVisible(route: string): boolean {
+  if (typeof document === "undefined") return false;
+  const pages = document.querySelectorAll<HTMLElement>(".taro_page:not(.taro_tabbar_page)");
+  for (const el of Array.from(pages)) {
+    if (pageElMatchesRoute(el, route) && el.classList.contains("taro_page_show") && !el.classList.contains("taro_page_shade")) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function reconcileTabStack() {
   if (process.env.TARO_ENV !== "h5" || reconcileLock) return;
 
@@ -168,6 +188,7 @@ export function installH5TabRouterFix() {
   const run = () => syncH5PageVisibility();
 
   window.addEventListener("hashchange", run);
+  window.addEventListener("popstate", run);
   Taro.eventCenter.on("__taroRouterChange", run);
   Taro.eventCenter.on("__afterTaroRouterChange", run);
   requestAnimationFrame(run);

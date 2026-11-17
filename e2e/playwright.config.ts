@@ -14,10 +14,18 @@ export default defineConfig({
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: process.env.E2E_SKIP_SERVER
     ? undefined
-    : {
-        command: "npx --yes http-server apps/client/dist-h5 -p 10086 -c-1 --silent",
-        url: "http://127.0.0.1:10086",
-        reuseExistingServer: !process.env.CI,
-        timeout: 180_000,
-      },
+    : [
+        {
+          command: "npx --yes http-server apps/client/dist-h5 -p 10086 -c-1 --silent",
+          url: "http://127.0.0.1:10086",
+          reuseExistingServer: !process.env.CI,
+          timeout: 180_000,
+        },
+        {
+          command: "node e2e/serve-studio.mjs",
+          url: "http://127.0.0.1:10087/studio/login",
+          reuseExistingServer: !process.env.CI,
+          timeout: 30_000,
+        },
+      ],
 });

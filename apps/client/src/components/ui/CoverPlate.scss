@@ -1,0 +1,26 @@
+.cover-plate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.cover-plate__mark {
+  color: #fff;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.cover-plate--sm .cover-plate__mark {
+  font-size: 28rpx;
+}
+
+.cover-plate--md .cover-plate__mark {
+  font-size: 44rpx;
+}
+
+.cover-plate--lg .cover-plate__mark {
+  font-size: 72rpx;
+}

@@ -1,5 +1,6 @@
 import { View, Text, Image, ScrollView } from "@tarojs/components";
 import { clsx } from "../../utils/clsx";
+import { CoverPlate } from "./CoverPlate";
 import "./LibraryShelf.scss";
 
 export type ShelfItem = {
@@ -26,9 +27,9 @@ export function LibraryShelf({ label, items, onSelect, className }: Props) {
           {items.map((item) => (
             <View key={item.id} className="ui-library-shelf__item" onClick={() => onSelect?.(item.id)}>
               {item.coverUrl ? (
-                <Image className="ui-library-shelf__cover" src={item.coverUrl} mode="aspectFill" />
+                <Image className="ui-library-shelf__cover" src={item.coverUrl} mode="aspectFill" lazyLoad />
               ) : (
-                <View className="ui-library-shelf__cover ui-library-shelf__cover--fallback" />
+                <CoverPlate className="ui-library-shelf__cover" title={item.title} seed={item.id} />
               )}
               <Text className="ui-library-shelf__title">{item.title}</Text>
             </View>

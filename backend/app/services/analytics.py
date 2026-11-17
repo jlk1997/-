@@ -33,6 +33,24 @@ def track_event(
             pass
 
 
+def track_activation_event(db: Session, user_id: uuid.UUID, event: str, payload: dict | None = None) -> bool:
+    """Track activation funnel event with server-side dedup."""
+    # Check if already tracked for this user
+    existing = (
+        db.query(AnalyticsEvent)
+        .filter(
+            AnalyticsEvent.user_id == user_id,
+            AnalyticsEvent.event == event,
+        )
+        .first()
+    )
+    if existing:
+        return False  # Already tracked
+
+    track_event(db, event, user_id=user_id, payload=payload or {})
+    return True
+
+
 def conversion_stats(db: Session, *, days: int = 30) -> dict[str, int]:
     from datetime import datetime, timedelta
 

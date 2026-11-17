@@ -1,3 +1,3 @@
 export default {
-  navigationBarTitleText: "比特音",
+  navigationBarTitleText: "创作",
 };

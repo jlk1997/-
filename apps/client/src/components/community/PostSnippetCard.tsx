@@ -13,7 +13,7 @@ export function PostSnippetCard({ caption, coverUrl, fallbackTitle, onClick }: P
   return (
     <View className="post-snippet" onClick={onClick}>
       {coverUrl ? (
-        <Image className="post-snippet__cover" src={coverUrl} mode="aspectFill" />
+        <Image className="post-snippet__cover" src={coverUrl} mode="aspectFill" lazyLoad />
       ) : (
         <View className="post-snippet__cover post-snippet__cover--fallback">
           <Icon name="feed" accent />

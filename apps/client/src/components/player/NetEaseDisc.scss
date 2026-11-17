@@ -131,7 +131,7 @@
   z-index: 1;
 
   &--fallback {
-    background: linear-gradient(135deg, var(--player-accent, #{$gold}), $gold-muted);
+    background: $slate-veil;
   }
 }
 

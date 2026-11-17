@@ -1,6 +1,6 @@
 import { View, Text } from "@tarojs/components";
 import { Component, PropsWithChildren, useEffect, useState, lazy, Suspense, type ReactNode } from "react";
-import Taro from "@tarojs/taro";
+import Taro, { useDidShow, useLaunch } from "@tarojs/taro";
 import { LocaleProvider } from "@vibe-sorcery/i18n";
 import { installTaroHttpAdapter } from "./services/http";
 import { bootstrapAuth } from "./utils/auth";
@@ -16,10 +16,16 @@ import { ThemeProvider } from "./contexts/ThemeProvider";
 import { LayoutVarsProvider } from "./contexts/LayoutVarsProvider";
 import { installRouteAliases } from "./utils/navigation";
 import { installH5TabRouterFix } from "./utils/h5TabRouter";
+import { redirectLegacyBrowserPathToHash } from "./utils/h5Path";
 import { syncRootLayoutFromRoute } from "./platform/layout";
 import { AppHeader } from "./components/AppHeader";
 import { PrivacyConsentGate, hasLocalPrivacyConsent } from "./components/legal/PrivacyConsentGate";
 import { WechatPrivacyGate } from "./components/legal/WechatPrivacyGate";
+import { captureReferralFromLaunch, captureReferralFromQuery } from "./platform/referral";
+import { setClientSurface, vibeApi } from "./services/api";
+setClientSurface(process.env.TARO_ENV === "weapp" ? "weapp" : "h5");
+import { cachePlatformHonesty } from "./platform/platformConfig";
+import { openCreatorDesk } from "./constants/routes";
 import "./app.scss";
 if (process.env.TARO_ENV === "h5") {
   require("./styles/h5-app-chrome.scss");
@@ -29,6 +35,7 @@ if (process.env.TARO_ENV === "h5") {
 installTaroHttpAdapter();
 installRouteAliases();
 if (process.env.TARO_ENV === "h5") {
+  redirectLegacyBrowserPathToHash();
   installH5TabRouterFix();
 }
 
@@ -74,10 +81,41 @@ export default function App({ children }: PropsWithChildren) {
   const [privacyOk, setPrivacyOk] = useState(
     process.env.TARO_ENV !== "h5" || hasLocalPrivacyConsent(),
   );
+  // Taro H5 looks up the current page instance in `children`. Never replace
+  // `{children}` with the privacy overlay — that throws「没有找到页面实例」.
+  const [legalDocOpen, setLegalDocOpen] = useState(false);
+
+  useLaunch((options) => {
+    captureReferralFromQuery((options?.query || {}) as Record<string, unknown>);
+  });
+  useDidShow((options) => {
+    captureReferralFromQuery((options?.query || {}) as Record<string, unknown>);
+  });
+
+  useEffect(() => {
+    if (process.env.TARO_ENV !== "h5" || typeof window === "undefined") return;
+    const syncLegalHash = () => {
+      setLegalDocOpen(window.location.hash.includes("packageLegal/"));
+    };
+    syncLegalHash();
+    window.addEventListener("hashchange", syncLegalHash);
+    return () => window.removeEventListener("hashchange", syncLegalHash);
+  }, []);
+
+  useEffect(() => {
+    if (process.env.TARO_ENV !== "h5" || typeof document === "undefined") return undefined;
+    document.documentElement.classList.toggle("privacy-blocking", !privacyOk);
+    return () => document.documentElement.classList.remove("privacy-blocking");
+  }, [privacyOk]);
 
   useEffect(() => {
     bootstrapAuth();
     bootstrapLocaleShell();
+    captureReferralFromLaunch();
+    vibeApi
+      .getPlatformConfig()
+      .then((cfg) => cachePlatformHonesty(cfg))
+      .catch(() => {});
     if (process.env.TARO_ENV === "weapp") {
       Taro.showShareMenu({ withShareTicket: true, showShareItems: ["shareAppMessage"] }).catch(() => {});
     }
@@ -100,6 +138,11 @@ export default function App({ children }: PropsWithChildren) {
           Taro.redirectTo({ url: "/packageStudio/pages/journey/index" }).catch(() => {
             Taro.reLaunch({ url: "/packageStudio/pages/journey/index" });
           });
+          return;
+        }
+        // Old creator hub bookmark → creator tab
+        if (hash.includes("packageCreator/pages/hub")) {
+          openCreatorDesk();
         }
       };
 
@@ -123,10 +166,7 @@ export default function App({ children }: PropsWithChildren) {
                   <GlobalJobBanner />
                 </Suspense>
                 <AppHeader />
-                {process.env.TARO_ENV === "h5" && !privacyOk ? (
-                  <PrivacyConsentGate onAccepted={() => setPrivacyOk(true)} />
-                ) : (
-                  <WechatPrivacyGate>
+                <WechatPrivacyGate>
                     <View className="app-consent-slot">
                       <Suspense fallback={null}>
                         <ConsentUpdateBanner />
@@ -134,7 +174,9 @@ export default function App({ children }: PropsWithChildren) {
                     </View>
                     <AppShell>{children}</AppShell>
                   </WechatPrivacyGate>
-                )}
+                {process.env.TARO_ENV === "h5" && !privacyOk ? (
+                  <PrivacyConsentGate onAccepted={() => setPrivacyOk(true)} readingLegal={legalDocOpen} />
+                ) : null}
               </LayoutVarsProvider>
             </PlayerProvider>
           </ActiveJobProvider>

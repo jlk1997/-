@@ -1,12 +1,27 @@
 import Taro from "@tarojs/taro";
 import { getAuthToken, API_BASE } from "@vibe-sorcery/api-client";
+import { LOCALE_STORAGE_KEY } from "@vibe-sorcery/i18n";
+import { getItem } from "./storage";
+
+function noFileSelectedMessage() {
+  return getItem(LOCALE_STORAGE_KEY) === "en" ? "No file selected" : "未选择文件";
+}
 
 export type EmotionAnalysis = {
   moods: string[];
   genres: string[];
   arousal?: number;
   valence?: number;
+  degraded?: boolean;
+  reason?: string;
 };
+
+export async function pickAndUploadCover(workId: string): Promise<unknown> {
+  const pick = await Taro.chooseImage({ count: 1, sizeType: ["compressed"] });
+  const filePath = pick.tempFilePaths?.[0];
+  if (!filePath) throw new Error("no file");
+  return uploadFile("/studio/cover-upload", filePath, "file", { work_id: workId });
+}
 
 export async function uploadFile(
   endpoint: string,
@@ -71,7 +86,7 @@ export async function pickAudioFile(): Promise<File | string> {
       input.onchange = () => {
         const f = input.files?.[0];
         if (f) resolve(f);
-        else reject(new Error("未选择文件"));
+        else reject(new Error(noFileSelectedMessage()));
       };
       input.click();
     });
@@ -90,7 +105,7 @@ export async function pickAudioFile(): Promise<File | string> {
   } catch {
     /* ignore */
   }
-  throw new Error("未选择文件");
+  throw new Error(noFileSelectedMessage());
 }
 
 export async function analyzeEmotionUniversal(file: File | string): Promise<EmotionAnalysis> {
@@ -109,4 +124,45 @@ export async function uploadPlaylistForm(
   idempotencyKey?: string,
 ) {
   return uploadFile("/works/generate/playlist", filePath, "file", fields, idempotencyKey);
+}
+
+export async function pickCsvFile(): Promise<File | string> {
+  if (process.env.TARO_ENV === "h5" && typeof document !== "undefined") {
+    return new Promise((resolve, reject) => {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = ".csv,text/csv";
+      input.onchange = () => {
+        const f = input.files?.[0];
+        if (f) resolve(f);
+        else reject(new Error(noFileSelectedMessage()));
+      };
+      input.click();
+    });
+  }
+  const msg = await Taro.chooseMessageFile({ count: 1, type: "file", extension: ["csv"] });
+  const file = msg.tempFiles[0];
+  if (!file?.path) throw new Error(noFileSelectedMessage());
+  return file.path;
+}
+
+export async function uploadRoyaltyReportUniversal(
+  file: File | string,
+  source = "user_export",
+  distributorCode?: string,
+): Promise<{
+  row_count?: number;
+  deduped?: boolean;
+  matched_works?: number;
+  unmatched_rows?: number;
+  rematched?: number;
+  unmatched_titles?: string[];
+  periods?: string[];
+}> {
+  const extra: Record<string, string> = { source };
+  if (distributorCode) extra.distributor_code = distributorCode;
+  if (typeof file === "string") {
+    return (await uploadFile("/wallet/reports", file, "file", extra)) as { row_count?: number; deduped?: boolean };
+  }
+  return (await uploadBlobH5("/wallet/reports", file, "file", extra)) as { row_count?: number; deduped?: boolean };
 }

@@ -1,0 +1,10 @@
+# Run only the stem worker on another machine.
+# Point DATABASE_URL, REDIS, CELERY_BROKER_URL and S3 at the main host. Do not start postgres here.
+
+services:
+  worker-stems:
+    restart: unless-stopped
+    command: sh -c "nice -n 10 celery -A app.celery_app.celery_app worker --loglevel=info --pool=prefork --concurrency=1 -Q stems"
+    environment:
+      TORCH_HOME: /app/models/torch
+      STEM_MODEL: ${STEM_MODEL:-htdemucs}

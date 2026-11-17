@@ -4,17 +4,16 @@ import Taro from "@tarojs/taro";
 import { useLocale } from "@vibe-sorcery/i18n";
 import { workToPlayerTrack } from "@vibe-sorcery/types";
 import { vibeApi } from "../../services/api";
-import { usePlayer } from "../../contexts/PlayerProvider";
+import { usePlayerTransport } from "../../contexts/PlayerProvider";
 import { useCreditsOptional } from "../../contexts/CreditsProvider";
 import { syncAfterFeedMutation } from "../../utils/feedMutationSync";
 import { useActiveJobOptional } from "../../contexts/ActiveJobProvider";
 import { PlayTrackButton } from "../player/PlayTrackButton";
-import { Button, StatusLine, ProgressRail, RingGauge, CelebrationSheet, Icon, CreditsPaywallSheet } from "../ui";
+import { Button, StatusLine, ProgressRail, RingGauge, CelebrationSheet, Icon, CreditsPaywallSheet, showSuccess, showError } from "../ui";
 import { PublishDialog } from "../community/PublishDialog";
 import { VariationPicker } from "./VariationPicker";
 import { WorkQualityCard } from "./WorkQualityCard";
-import { VariationLab } from "./VariationLab";
-import { RitualTimeline } from "./RitualTimeline";
+import { ProgressTimeline } from "./ProgressTimeline";
 import { GenerationReveal } from "./GenerationReveal";
 import { AiGeneratedBadge } from "../legal/AiGeneratedBadge";
 import { clearActiveGeneration } from "../../utils/generationStorage";
@@ -22,14 +21,20 @@ import { setItem, getItem } from "../../platform/storage";
 import { scheduleClearActiveGeneration } from "../../utils/restoreGeneration";
 import type { RemixSourceSnapshot } from "../../utils/generationStorage";
 import { openWorkDetail } from "../../utils/workNav";
+import { openRadioPage } from "../../utils/navigation";
 import { trackActivationOnce } from "../../utils/activationEvents";
+import { hapticLight } from "../../utils/haptic";
+import { copyWeappCreatorLink } from "../../packageCreator/WeappH5Bridge";
+import { creatorPage, CREATOR_PAGE_ROUTES } from "../../constants/routes";
+import { goShipBand } from "../../packageCreator/nextActionNav";
+import { openWorkbench } from "../../utils/workbenchNav";
 import {
   canPreview,
   COMPOSE_ETA_SECONDS,
   isSpuriousJobFailure,
   isTerminalJobStatus,
   phaseLabelKey,
-  ritualStepIndex,
+  progressStepIndex,
 } from "../../utils/generationPhases";
 import { formatQueueWait, resolveGenerationError } from "../../utils/generationErrors";
 import "./GenerationProgress.scss";
@@ -44,11 +49,19 @@ type Props = {
   showActions?: boolean;
   returnUrl?: string;
   startedAt?: string;
-  jobType?: "single" | "playlist" | "variations" | "remix";
+  jobType?: "single" | "playlist" | "variations" | "remix" | "workbench";
   remixSource?: RemixSourceSnapshot;
 };
 
-const RITUAL_STEP_IDS = ["queued", "intent", "composing", "saving", "audio_ready", "finishing", "done"] as const;
+const STAGE_IDS = ["stageWrite", "stageArrange", "stageSing", "stageHear"] as const;
+
+function stageIndex(phase: string | null | undefined): number {
+  const step = progressStepIndex(phase);
+  if (step <= 1) return 0;
+  if (step === 2) return 1;
+  if (step === 3) return 2;
+  return 3;
+}
 
 export function GenerationProgress({
   jobId,
@@ -65,7 +78,7 @@ export function GenerationProgress({
   const g = copy.generation;
   const ge = copy.generationErrors as Record<string, { title: string; body: string; primary: string; secondary?: string }>;
   const phases = g.phases as Record<string, string>;
-  const { playTrack } = usePlayer();
+  const { playTrack } = usePlayerTransport();
   const creditsCtx = useCreditsOptional();
   const activeJobCtx = useActiveJobOptional();
   const stopRef = useRef<(() => void) | null>(null);
@@ -87,6 +100,12 @@ export function GenerationProgress({
     setCancelling(false);
     setEtaSeconds(null);
     composingStartedRef.current = null;
+    pendingFirstCelebrateRef.current = false;
+    celebratedRef.current = false;
+    queuedTwoTakesRef.current = false;
+    setPreflightFail(false);
+    setCelebrateOpen(false);
+    setPickedWorkId(null);
   }, [jobId, g.running, startedAtProp]);
 
   const [status, setStatus] = useState("running");
@@ -107,20 +126,29 @@ export function GenerationProgress({
   const [error, setError] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [trackerWarning, setTrackerWarning] = useState(false);
+  const [stalled, setStalled] = useState(false);
+  const stalledRef = useRef(false);
   const [priorityLane, setPriorityLane] = useState(false);
   const [postProcessDegraded, setPostProcessDegraded] = useState(false);
+  const [reprocessing, setReprocessing] = useState(false);
   const [isPartialFailure, setIsPartialFailure] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [etaSeconds, setEtaSeconds] = useState<number | null>(null);
+  const [queueLine, setQueueLine] = useState("");
   const [publishOpen, setPublishOpen] = useState(false);
   const [celebrateOpen, setCelebrateOpen] = useState(false);
   const [celebrateVariant, setCelebrateVariant] = useState<"publish" | "playlist" | "firstTrack">("publish");
   const celebratedRef = useRef(false);
+  const queuedTwoTakesRef = useRef(false);
+  const pendingFirstCelebrateRef = useRef(false);
+  const [preflightFail, setPreflightFail] = useState(false);
   const composingStartedRef = useRef<string | null>(null);
   const [showMemberUpsell, setShowMemberUpsell] = useState(false);
   const [paywallOpen, setPaywallOpen] = useState(false);
+  const [showFailMore, setShowFailMore] = useState(false);
   const [composeTipIndex, setComposeTipIndex] = useState(0);
   const [remixContext, setRemixContext] = useState<RemixSourceSnapshot | null>(remixSourceProp ?? null);
+  const [pickedWorkId, setPickedWorkId] = useState<string | null>(null);
 
   const composeTips = useMemo(
     () => [g.composingTip1, g.composingTip2, g.composingTip3].filter(Boolean),
@@ -138,16 +166,16 @@ export function GenerationProgress({
     return () => clearInterval(id);
   }, [phase, composeTips.length]);
 
-  const ritualSteps = useMemo(
+  const progressSteps = useMemo(
     () =>
-      RITUAL_STEP_IDS.map((id) => ({
+      STAGE_IDS.map((id) => ({
         id,
-        label: phases[id] || phases[phaseLabelKey(id)] || id,
+        label: (g as Record<string, string>)[id] || id,
       })),
-    [phases]
+    [g]
   );
 
-  const ritualCurrent = ritualStepIndex(phase);
+  const progressCurrent = stageIndex(phase);
   const gaugeLabel = phase ? phases[phaseLabelKey(phase)] || message : message;
   const previewReady = canPreview(phase, result as Record<string, unknown> | null);
 
@@ -173,13 +201,22 @@ export function GenerationProgress({
 
   useEffect(() => {
     if (!activeJobCtx) return;
+    const current = activeJobCtx.job;
+    if (current?.jobId === jobId && !isTerminalJobStatus(current.status)) {
+      activeJobCtx.patchJob({
+        returnUrl,
+        jobType,
+        remixSourceTitle: remixContext?.title,
+      });
+      return;
+    }
     activeJobCtx.setJob({
       jobId,
-      progress: 0,
-      status: "running",
-      message: g.running,
+      progress: current?.jobId === jobId ? current.progress : 0,
+      status: current?.jobId === jobId ? current.status : "running",
+      message: current?.jobId === jobId ? current.message : g.running,
       returnUrl,
-      phase: "queued",
+      phase: current?.jobId === jobId ? current.phase : "queued",
       startedAt: startedAtRef.current,
       jobType,
       remixSourceTitle: remixContext?.title,
@@ -249,7 +286,9 @@ export function GenerationProgress({
         status: data.status,
         progress: data.progress,
         error_message: data.error_message,
+        error_code: data.error_code,
         startedMsAgo: Date.now() - mountedAtRef.current,
+        trackerClosed: data.trackerClosed,
       })
     ) {
       return;
@@ -258,12 +297,30 @@ export function GenerationProgress({
     if (data.compose_eta_seconds != null && (data.phase === "composing" || data.phase?.startsWith("track_"))) {
       setEtaSeconds(Math.max(0, data.compose_eta_seconds));
     }
+    const queued = data as { queue_ahead?: number | null; estimated_wait_seconds?: number | null };
+    if (data.status === "pending" && queued.queue_ahead != null && queued.estimated_wait_seconds != null) {
+      setQueueLine(formatQueueWait(g.queueWait, queued.queue_ahead, queued.estimated_wait_seconds));
+    } else if (data.status !== "pending") {
+      setQueueLine("");
+    }
     if (data.current_step != null && data.total_steps != null) {
       setStepLabel(
         g.stepProgress.replace("{current}", String(data.current_step)).replace("{total}", String(data.total_steps))
       );
     }
-    const msg = data.status_message || (data.status === "completed" ? g.completed : g.running);
+    const waiting = data.status === "pending" || data.phase === "queued";
+    const progressed =
+      data.stalled !== true &&
+      (data.progress !== undefined || data.phase) &&
+      (data.phase !== phase || Math.round((data.progress || 0) * 100) !== progress || data.status !== status);
+    const showStall = Boolean(data.stalled) || (stalledRef.current && !progressed && !isTerminalJobStatus(data.status));
+    stalledRef.current = showStall;
+    setStalled(showStall);
+    const msg = showStall
+      ? g.stillWorking
+      : waiting
+        ? g.waitingToStart
+        : data.status_message || (data.status === "completed" ? g.completed : g.running);
     setMessage(msg);
 
     const workId = data.result?.work_id as string | undefined;
@@ -318,10 +375,12 @@ export function GenerationProgress({
       const isFirstComplete = !getItem("activation:done:activation_first_generate_complete");
       void trackActivationOnce("activation_first_generate_complete", { job_id: jobId });
       const balance = creditsCtx?.balance ?? 0;
-      if (isFirstComplete && jobType === "single" && (!creditsCtx?.isMember || balance < 3)) {
+      const multiTake = (workIds?.length || 0) > 1;
+      if (isFirstComplete && jobType === "single" && (!creditsCtx?.isMember || balance < 3) && !multiTake) {
         setShowMemberUpsell(true);
-        setCelebrateVariant("firstTrack");
-        setCelebrateOpen(true);
+        pendingFirstCelebrateRef.current = true;
+      } else if (multiTake) {
+        pendingFirstCelebrateRef.current = false;
       }
       void creditsCtx?.refresh();
     }
@@ -329,7 +388,8 @@ export function GenerationProgress({
       const resolved = resolveGenerationError(ge, data.error_code, data.error_message);
       setError(resolved.title);
       setErrorCode(data.error_code || "GENERATION_FAILED");
-      if (partial) {
+      const delivered = (workIds?.length || 0) || (steps?.length || 0);
+      if (partial && delivered > 0) {
         setIsPartialFailure(true);
       } else {
         setIsPartialFailure(false);
@@ -360,14 +420,23 @@ export function GenerationProgress({
     .map((s) =>
       workToPlayerTrack(
         { id: s.work_id, title: stepTitle(s.step, s.title), audio_url: s.audio_url!, moods: [] },
-        { source: "generation" }
+        { source: "generation", isOwner: true }
       )
     );
 
   const isProcessing = !error && !isTerminalJobStatus(status);
   const showReveal = status === "completed" || phase === "done";
-  const isPreviewPick = (result?.workIds?.length ?? 0) > 1;
-  const singleWorkId = isPreviewPick ? undefined : result?.workId || result?.workIds?.[0];
+  const workIdCount = result?.workIds?.length ?? 0;
+  const isPreviewPick = workIdCount > 1 && !pickedWorkId;
+  const isTwoTakePick = workIdCount === 2 && !pickedWorkId;
+  const singleWorkId = pickedWorkId || (isPreviewPick ? undefined : result?.workId || result?.workIds?.[0]);
+
+  useEffect(() => {
+    if (queuedTwoTakesRef.current) return;
+    if (!showReveal || workIdCount !== 2 || playerTracks.length < 2) return;
+    queuedTwoTakesRef.current = true;
+    playTrack(playerTracks[0], { queue: playerTracks, navigate: false });
+  }, [showReveal, workIdCount, playerTracks, playTrack]);
 
   useEffect(() => {
     if (!showReveal || celebratedRef.current) return;
@@ -412,7 +481,7 @@ export function GenerationProgress({
       playTrack(
         workToPlayerTrack(
           { id: singleWorkId, title: result.title || "Track", audio_url: result.audioUrl, moods: result.moods || [] },
-          { source: "generation" }
+          { source: "generation", isOwner: true }
         ),
         { navigate: true }
       );
@@ -420,7 +489,7 @@ export function GenerationProgress({
     }
     if (singleWorkId) {
       vibeApi.getWork(singleWorkId).then((w) => {
-        playTrack(workToPlayerTrack(w, { source: "generation" }), { navigate: true });
+        playTrack(workToPlayerTrack(w, { source: "generation", isOwner: true }), { navigate: true });
       });
     }
   }
@@ -493,35 +562,38 @@ export function GenerationProgress({
         </View>
       )}
 
-      <View className="gen-progress__ritual">
+      {!showReveal && (
+      <View className="gen-progress__orbs">
         <View className="gen-progress__orb gen-progress__orb--1" />
         <View className="gen-progress__orb gen-progress__orb--2" />
       </View>
+      )}
 
-      {isPartialFailure ? (
+      {isPartialFailure && (completedSteps.length || result?.workIds?.length || 0) > 0 ? (
         <>
-          <StatusLine tone="info">{g.partialPlaylistTitle}</StatusLine>
+          <StatusLine tone="info">{jobType === "playlist" ? g.partialPlaylistTitle : g.partialTakesTitle}</StatusLine>
           <Text className="gen-progress__partial-body typo-meta">
-            {g.partialPlaylistBody.replace("{n}", String(completedSteps.length || result?.workIds?.length || 0))}
+            {(jobType === "playlist" ? g.partialPlaylistBody : g.partialTakesBody).replace(
+              "{n}",
+              String(completedSteps.length || result?.workIds?.length || 0),
+            )}
           </Text>
-          {error && <Text className="gen-progress__refund typo-meta">{error}</Text>}
         </>
       ) : error ? (
         <>
           <StatusLine tone="error">{error}</StatusLine>
           {errorDetail ? <Text className="gen-progress__refund typo-meta">{errorDetail}</Text> : null}
-          <Text className="gen-progress__refund typo-meta">{g.creditsRefunded}</Text>
+          {errorCode === "MINIMAX_BALANCE" ? null : <Text className="gen-progress__refund typo-meta">{g.creditsRefunded}</Text>}
         </>
       ) : status === "cancelled" ? (
         <StatusLine tone="info">{g.cancelledProgress}</StatusLine>
-      ) : showReveal ? (
-        <StatusLine tone="success">{message}</StatusLine>
-      ) : (
+      ) : showReveal ? null : (
         <StatusLine tone="loading">{message}</StatusLine>
       )}
 
+      {!showReveal && !error && (
       <View className="gen-progress__layout">
-        <RitualTimeline steps={ritualSteps} current={ritualCurrent} className="gen-progress__timeline" />
+        <ProgressTimeline steps={progressSteps} current={progressCurrent} className="gen-progress__timeline" />
 
         <View className="gen-progress__main">
           <View className={phase === "composing" ? "gen-progress__viz gen-progress__viz--composing" : "gen-progress__viz"}>
@@ -530,14 +602,23 @@ export function GenerationProgress({
           </View>
           <View className="gen-progress__meta">
             <Text className="typo-meta">{sublabel}</Text>
-            <Text className="typo-meta">{progress}%</Text>
+            <Text className="typo-meta">{(status === "pending" || phase === "queued") && progress === 0 ? g.waitingToStart : `${progress}%`}</Text>
           </View>
+          {isProcessing && showActions ? (
+            <Button variant="ghost" size="sm" loading={cancelling} onClick={cancelJob}>
+              {g.cancelJob}
+            </Button>
+          ) : null}
           {priorityLane && status === "pending" && (
             <Text className="gen-progress__priority typo-meta">{g.priorityLane}</Text>
           )}
           {trackerWarning && (
             <Text className="gen-progress__tracker-warn typo-meta">{g.trackerReconnecting}</Text>
           )}
+          {stalled && !error && (
+            <Text className="gen-progress__tracker-warn typo-meta">{g.stillWorking}</Text>
+          )}
+          {queueLine ? <Text className="gen-progress__eta typo-meta">{queueLine}</Text> : null}
           {etaLabel && <Text className="gen-progress__eta typo-meta">{etaLabel}</Text>}
           {(phase === "composing" || phase?.startsWith("track_")) && composeTips.length > 0 && (
             <Text className="gen-progress__tip typo-meta">{composeTips[composeTipIndex]}</Text>
@@ -561,7 +642,7 @@ export function GenerationProgress({
                     audio_url: result.audioUrl,
                     moods: result.moods || [],
                   },
-                  { source: "generation" }
+                  { source: "generation", isOwner: true }
                 )}
                 label={g.previewListen}
               />
@@ -569,6 +650,7 @@ export function GenerationProgress({
           )}
         </View>
       </View>
+      )}
 
       {completedSteps.length > 0 && isProcessing && (jobType === "playlist" || jobType === "variations") && (
         <Text className="gen-progress__incremental typo-meta">
@@ -585,7 +667,7 @@ export function GenerationProgress({
                 <PlayTrackButton
                   track={workToPlayerTrack(
                     { id: s.work_id, title: stepTitle(s.step, s.title), audio_url: s.audio_url, moods: [] },
-                    { source: "generation" }
+                    { source: "generation", isOwner: true }
                   )}
                   queue={playerTracks}
                   label={g.previewStep}
@@ -596,14 +678,6 @@ export function GenerationProgress({
         </View>
       )}
 
-      {isProcessing && showActions && (
-        <View className="gen-progress__actions">
-          <Button variant="ghost" size="sm" loading={cancelling} onClick={cancelJob}>
-            {g.cancelJob}
-          </Button>
-        </View>
-      )}
-
       {error && !isPartialFailure && (
         <View className="gen-progress__actions">
           {onRetry && (
@@ -611,85 +685,189 @@ export function GenerationProgress({
               {failedPrimary}
             </Button>
           )}
-          {failedSecondary && (
-            <Button variant="ghost" size="sm" onClick={handleFailedSecondary}>
-              {failedSecondary}
+          {jobType === "workbench" ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() =>
+                returnUrl.includes("workbench")
+                  ? Taro.navigateTo({ url: returnUrl })
+                  : openWorkbench(remixContext?.workId || singleWorkId || "")
+              }
+            >
+              {copy.workbenchUi.staySession}
+            </Button>
+          ) : null}
+          {showFailMore ? (
+            <>
+              {failedSecondary && (
+                <Button variant="ghost" size="sm" onClick={handleFailedSecondary}>
+                  {failedSecondary}
+                </Button>
+              )}
+              <Button variant="ghost" size="sm" onClick={backToCreate}>
+                {g.backToCreate}
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => openRadioPage()}>
+                {g.failRadio}
+              </Button>
+            </>
+          ) : (
+            <Button variant="ghost" size="sm" onClick={() => setShowFailMore(true)}>
+              {g.failMore}
             </Button>
           )}
-          <Button variant="ghost" size="sm" onClick={backToCreate}>
-            {g.backToCreate}
-          </Button>
         </View>
       )}
 
       {isPartialFailure && (
         <View className="gen-progress__actions">
-          {result?.playlistId && (
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => Taro.navigateTo({ url: `/pages/playlist/index?id=${result.playlistId}` })}
-            >
-              {g.savePartialPlaylist}
-            </Button>
-          )}
           {completedSteps.length > 0 && (
-            <Button variant="secondary" size="sm" onClick={listenFirst}>
+            <Button variant="primary" size="sm" onClick={listenFirst}>
               {g.listenNow}
             </Button>
           )}
-          {onRetry && (
-            <Button variant="ghost" size="sm" onClick={onRetry}>
-              {g.retry}
+          {showFailMore ? (
+            <>
+              {result?.playlistId && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => Taro.navigateTo({ url: `/pages/playlist/index?id=${result.playlistId}` })}
+                >
+                  {g.savePartialPlaylist}
+                </Button>
+              )}
+              {onRetry && (
+                <Button variant="ghost" size="sm" onClick={onRetry}>
+                  {g.retry}
+                </Button>
+              )}
+              <Button variant="ghost" size="sm" onClick={backToCreate}>
+                {g.backToCreate}
+              </Button>
+            </>
+          ) : (
+            <Button variant="ghost" size="sm" onClick={() => setShowFailMore(true)}>
+              {g.failMore}
             </Button>
           )}
         </View>
       )}
 
-      {showReveal && singleWorkId && (result?.audioUrl || playerTracks.length > 0) && (
-        <View className="gen-progress__listen-hero">
-          <Text className="gen-progress__listen-hero-title">{g.listenNow}</Text>
-          <Text className="gen-progress__listen-hero-hint">{g.backgroundFinishing}</Text>
-          <Button variant="primary" block onClick={listenFirst}>
-            {g.previewListen}
-          </Button>
-        </View>
-      )}
-
-      {showReveal && postProcessDegraded && (
-        <Text className="gen-progress__degraded typo-meta">{g.postProcessDegraded}</Text>
-      )}
-
-      {showReveal && singleWorkId && jobType === "single" && !isPreviewPick && (
+      {showReveal && singleWorkId && jobType !== "playlist" && !isPreviewPick && (
         <GenerationReveal
           workId={singleWorkId}
           title={result?.title}
           coverUrl={result?.coverUrl}
           moods={result?.moods}
+          fromWorkbench={jobType === "workbench"}
+          sourceWorkId={remixContext?.workId}
           onTitleChange={(nextTitle) => setResult((prev) => (prev ? { ...prev, title: nextTitle } : prev))}
         />
       )}
 
-      {showActions && showReveal && singleWorkId && jobType === "single" && !isPreviewPick && (
-        <WorkQualityCard
-          workId={singleWorkId}
-          title={result?.title}
-          moods={result?.moods}
-          onOptimize={(hint) => {
-            setItem("create:optimizeHint", hint);
-            Taro.switchTab({ url: "/pages/create/index" });
+      {showReveal && isTwoTakePick && (
+        <View className="gen-progress__two-take-hero">
+          <Text className="gen-progress__listen-hero-title">{g.reveal.pickTwo}</Text>
+          <Text className="gen-progress__listen-hero-hint">{g.reveal.nextHint}</Text>
+        </View>
+      )}
+
+      {showActions && showReveal && result?.workIds && result.workIds.length > 1 && (
+        <VariationPicker
+          jobId={jobId}
+          workIds={result.workIds}
+          hero={workIdCount === 2}
+          showNext
+          onPicked={(workId) => {
+            setPickedWorkId(workId);
+            pendingFirstCelebrateRef.current = false;
           }}
         />
       )}
 
-      {showActions && showReveal && jobType !== "single" && (
+      {showReveal && postProcessDegraded && (
+        <View className="gen-progress__degraded-card">
+          <StatusLine tone="warning">{g.postProcessDegraded}</StatusLine>
+          {singleWorkId ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              loading={reprocessing}
+              onClick={async () => {
+                if (!singleWorkId || reprocessing) return;
+                setReprocessing(true);
+                hapticLight();
+                try {
+                  await vibeApi.reprocessWork(singleWorkId).catch(() => vibeApi.triggerPostProcess(singleWorkId));
+                  showSuccess(copy.worksUi.reprocessQueued);
+                  setPostProcessDegraded(false);
+                } catch {
+                  showError(copy.worksUi.deleteFail);
+                } finally {
+                  setReprocessing(false);
+                }
+              }}
+            >
+              {g.postProcessFix}
+            </Button>
+          ) : null}
+        </View>
+      )}
+
+      {showActions && showReveal && singleWorkId && jobType !== "playlist" && !isPreviewPick && (
+        <WorkQualityCard
+          workId={singleWorkId}
+          title={result?.title}
+          moods={result?.moods}
+          doorOnly
+          onScores={(s) => {
+            const originalityRisk = Number(s.preflight?.originality_risk || 0);
+            const fail =
+              s.suggestion_key === "loudness" ||
+              s.suggestion_key === "duration" ||
+              s.suggestion_key === "originality" ||
+              originalityRisk >= 80;
+            setPreflightFail(fail);
+            if (fail) {
+              pendingFirstCelebrateRef.current = false;
+              setCelebrateOpen(false);
+              return;
+            }
+            if (pendingFirstCelebrateRef.current) {
+              pendingFirstCelebrateRef.current = false;
+              setCelebrateVariant("firstTrack");
+              setCelebrateOpen(true);
+            }
+          }}
+          onLab={
+            jobId && (result?.workIds?.length || 0) > 1
+              ? () => Taro.navigateTo({ url: `/packageStudio/pages/variation-lab/index?jobId=${jobId}` })
+              : () => tryVariations()
+          }
+          onOptimize={(hint) => {
+            setItem("create:optimizeHint", hint);
+            tryVariations();
+          }}
+          onRemelt={() => {
+            const benchId = (jobType === "workbench" && remixContext?.workId) || singleWorkId;
+            if (benchId) openWorkbench(benchId);
+          }}
+        />
+      )}
+      {showActions && showReveal && preflightFail && (
+        <StatusLine tone="error">{g.preflightFail}</StatusLine>
+      )}
+
+      {showActions && showReveal && jobType === "playlist" && (
         <View className="gen-progress__actions">
           <Button variant="primary" size="sm" onClick={listenFirst}>
             {g.listenNow}
           </Button>
           {result?.playlistId && (
             <Button
-              variant="secondary"
+              variant="ghost"
               size="sm"
               onClick={() => Taro.navigateTo({ url: `/pages/playlist/index?id=${result.playlistId}` })}
             >
@@ -699,42 +877,14 @@ export function GenerationProgress({
         </View>
       )}
 
-      {showActions && showReveal && result?.workIds && result.workIds.length > 1 && (
-        <>
-          <VariationLab
-            works={result.workIds.map((id, i) => ({
-              id,
-              title: completedSteps.find((s) => s.work_id === id)?.title || `Variation ${i + 1}`,
-              audio_url: completedSteps.find((s) => s.work_id === id)?.audio_url,
-            }))}
-          />
-          <VariationPicker jobId={jobId} workIds={result.workIds} />
+      {showActions && showReveal && singleWorkId && jobType === "single" && result?.playlistId && (
+        <View className="gen-progress__actions">
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => Taro.navigateTo({ url: `/packageStudio/pages/variation-lab/index?jobId=${jobId}` })}
+            onClick={() => Taro.navigateTo({ url: `/pages/playlist/index?id=${result.playlistId}` })}
           >
-            {copy.variationLabUi.title}
-          </Button>
-        </>
-      )}
-
-      {showActions && showReveal && singleWorkId && jobType === "single" && (
-        <View className="gen-progress__actions">
-          {result?.playlistId && (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => Taro.navigateTo({ url: `/pages/playlist/index?id=${result.playlistId}` })}
-            >
-              {g.viewPlaylist}
-            </Button>
-          )}
-          <Button variant="secondary" size="sm" onClick={() => setPublishOpen(true)}>
-            {g.publishToFeed}
-          </Button>
-          <Button variant="ghost" size="sm" onClick={tryVariations}>
-            {g.tryVariations}
+            {g.viewPlaylist}
           </Button>
         </View>
       )}
@@ -767,6 +917,96 @@ export function GenerationProgress({
           setShowMemberUpsell(false);
         }}
         shareTitle={result?.title}
+        workId={singleWorkId}
+        beautifyLabel={celebrateVariant === "firstTrack" && singleWorkId ? copy.generation.reveal.beautify : undefined}
+        onBeautify={
+          celebrateVariant === "firstTrack" && singleWorkId
+            ? () => {
+                const id = singleWorkId;
+                setCelebrateOpen(false);
+                openWorkbench(id);
+              }
+            : undefined
+        }
+        releaseLabel={singleWorkId ? copy.generation.reveal.shipToStores : undefined}
+        releaseDisabled={preflightFail}
+        releaseHint={preflightFail ? g.preflightFail : undefined}
+        onRelease={
+          singleWorkId
+            ? () => {
+                setCelebrateOpen(false);
+                goShipBand(singleWorkId);
+              }
+            : undefined
+        }
+        communityLabel={celebrateVariant !== "publish" && singleWorkId ? copy.celebrationUi.goCommunity : undefined}
+        onCommunity={
+          celebrateVariant !== "publish" && singleWorkId
+            ? () => {
+                setCelebrateOpen(false);
+                setPublishOpen(true);
+              }
+            : undefined
+        }
+        clipsLabel={singleWorkId ? copy.celebrationUi.goClips : undefined}
+        onClips={
+          singleWorkId
+            ? () => {
+                const id = singleWorkId;
+                setCelebrateOpen(false);
+                Taro.navigateTo({ url: creatorPage("work", { workId: id }) });
+              }
+            : undefined
+        }
+        radioLabel={singleWorkId ? copy.celebrationUi.goRadio : undefined}
+        onRadio={
+          singleWorkId
+            ? () => {
+                const id = singleWorkId;
+                setCelebrateOpen(false);
+                void (async () => {
+                  let station: string | undefined;
+                  try {
+                    const trial = (await vibeApi.startRadioTrial(id)) as { work_id?: string; station?: string };
+                    station = typeof trial.station === "string" ? trial.station : undefined;
+                    Taro.showToast({ title: copy.creatorUi.radioTrialLive, icon: "success" });
+                    openRadioPage({ workId: trial.work_id || id, station });
+                    return;
+                  } catch {
+                    /* still open the station so the creator can hear it */
+                  }
+                  openRadioPage({ workId: id, station });
+                })();
+              }
+            : undefined
+        }
+        labLabel={jobId && (jobType === "variations" || (result?.workIds?.length || 0) > 1) ? copy.celebrationUi.goLab : undefined}
+        onLab={
+          jobId && (jobType === "variations" || (result?.workIds?.length || 0) > 1)
+            ? () => {
+                setCelebrateOpen(false);
+                Taro.navigateTo({ url: `/packageStudio/pages/variation-lab/index?jobId=${jobId}` });
+              }
+            : undefined
+        }
+        passportLabel={celebrateVariant === "publish" && singleWorkId ? copy.celebrationUi.goPassport : undefined}
+        onPassport={
+          celebrateVariant === "publish" && singleWorkId
+            ? () => {
+                setCelebrateOpen(false);
+                Taro.navigateTo({ url: creatorPage("passport", { workId: singleWorkId }) });
+              }
+            : undefined
+        }
+        connectorLabel={copy.celebrationUi.goConnector}
+        onConnector={() => {
+          setCelebrateOpen(false);
+          if (process.env.TARO_ENV === "weapp") {
+            void copyWeappCreatorLink(CREATOR_PAGE_ROUTES.accounts);
+            return;
+          }
+          Taro.navigateTo({ url: creatorPage("accounts") });
+        }}
         upsellLabel={showMemberUpsell ? copy.celebrationUi.memberUpsell : undefined}
         onUpsell={
           showMemberUpsell

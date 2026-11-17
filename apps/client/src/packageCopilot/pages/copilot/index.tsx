@@ -15,6 +15,8 @@ import { STACK_PAGE_ROUTES } from "../../../constants/routes";
 import { CopilotActionPanel } from "../../components/CopilotActionPanel";
 import "./index.scss";
 
+const COPILOT_NEXT = "/packageCopilot/pages/copilot/index";
+
 const LazyGenerationProgress = lazy(() =>
   import("../../../components/studio/GenerationProgress").then((m) => ({ default: m.GenerationProgress }))
 );
@@ -77,7 +79,7 @@ export default function CopilotPage() {
 
   const activeContextChips = contextChips(sessionContext);
 
-  const prompts = [cp.promptJourney, cp.promptCredits, cp.promptRemix];
+  const prompts = [cp.promptJourney, cp.promptCredits, cp.promptRemix, cp.promptRelease, cp.promptBeautify];
 
   useDidShow(() => {
     bootstrapAuth();
@@ -85,6 +87,22 @@ export default function CopilotPage() {
     vibeApi.copilotListSessions().then(setSessions).catch(() => {});
     vibeApi.copilotUsage().then(setCopilotUsage).catch(() => {});
   });
+
+  function resolveNavigate(path: string) {
+    return path;
+  }
+
+  async function confirmPresetThenApply(actions: StudioAction[]) {
+    const prefill = actions.find((a) => a.type === "prefill_create" && a.payload?.preset_id);
+    if (prefill) {
+      const ok = await Taro.showModal({
+        title: cp.presetConfirmTitle,
+        content: cp.presetConfirmBody,
+      });
+      if (!ok.confirm) return;
+    }
+    applyStudioActions(actions);
+  }
 
   async function handleStudioActions(actions: StudioAction[], inlineGenerate: boolean) {
     const startAction = actions.find((a) => a.type === "start_generation");
@@ -125,12 +143,12 @@ export default function CopilotPage() {
       }
       return;
     }
-    applyStudioActions(actions);
+    await confirmPresetThenApply(actions);
   }
 
   async function send(textOverride?: string) {
     const text = (textOverride ?? input).trim();
-    if (!text || !requireAuth()) return;
+    if (!text || !requireAuth(COPILOT_NEXT)) return;
     setInput("");
     setPricingLink(null);
     setPendingActions(null);
@@ -216,10 +234,14 @@ export default function CopilotPage() {
     }
   }
 
+  const weappHonesty =
+    process.env.TARO_ENV === "weapp" ? <Text className="copilot-weapp-honesty">{cp.weappHonesty}</Text> : null;
+
   if (!isLoggedIn()) {
     return (
       <PageShell title={cp.title} subtitle={cp.loginSubtitle} immersive ambient>
-        <EmptyState iconName="create" title={cp.title} description={cp.loginSubtitle} actionLabel={copy.loginUi.login} onAction={() => requireAuth()} />
+        {weappHonesty}
+        <EmptyState iconName="create" title={cp.title} description={cp.loginSubtitle} actionLabel={copy.loginUi.login} onAction={() => requireAuth(COPILOT_NEXT)} />
       </PageShell>
     );
   }
@@ -227,6 +249,7 @@ export default function CopilotPage() {
   return (
     <PageShell title={cp.title} subtitle={cp.subtitle} ambient noPadTop immersive wide>
       <View className="copilot-page">
+      {weappHonesty}
       <View className="copilot-header">
         <View className="copilot-header__brand">
           <View className="copilot-header__orb">
@@ -302,31 +325,37 @@ export default function CopilotPage() {
             </View>
           </View>
         )}
-        {messages.map((m, i) => (
+        {messages.map((m, i) => {
+          const isLastWithActions =
+            m.role === "assistant" &&
+            Boolean(m.actions?.length) &&
+            !messages.slice(i + 1).some((later) => later.role === "assistant" && later.actions?.length);
+          const showInlineActions =
+            isLastWithActions && !pendingActions && !activeJobId && Boolean(m.actions?.length);
+          return (
           <View key={i} id={`copilot-msg-${i}`}>
             <ChatBubble role={m.role} content={m.content || (loading && m.role === "assistant" ? cp.typing : "")} />
-            {m.role === "assistant" && m.actions && m.actions.length > 0 && (
+            {showInlineActions && m.actions && (
               m.actions.some((a) => a.type === "start_generation") ? (
                 <CopilotActionPanel
                   actions={m.actions}
                   variant="generate"
                   generating={generating}
                   primaryLabel={actionLabel(m.actions.find((a) => a.type === "start_generation")!)}
-                  secondaryLabel={cp.openInStudio}
                   onPrimary={() => handleStudioActions(m.actions!, true)}
-                  onSecondary={() => handleStudioActions(m.actions!, false)}
                 />
               ) : (
                 <CopilotActionPanel
                   actions={m.actions}
                   variant="studio"
                   primaryLabel={cp.applyStudio}
-                  onPrimary={() => applyStudioActions(m.actions!)}
+                  onPrimary={() => void confirmPresetThenApply(m.actions!)}
                 />
               )
             )}
           </View>
-        ))}
+          );
+        })}
         {loading && (
           <View className="copilot-typing">
             <Icon name="sigil" accent size="sm" />
@@ -335,25 +364,20 @@ export default function CopilotPage() {
         )}
         {pricingLink && (
           <View className="copilot-pricing-cta">
-            <Button variant="secondary" size="sm" onClick={() => Taro.navigateTo({ url: pricingLink })}>
-              {cp.viewPricing}
+            <Button variant="secondary" size="sm" onClick={() => Taro.navigateTo({ url: resolveNavigate(pricingLink) })}>
+              {pricingLink.includes("workbench") ? cp.openBeautify : cp.viewPricing}
             </Button>
           </View>
         )}
-        {pendingActions && pendingActions.length > 0 && (
+        {pendingActions && pendingActions.length > 0 && !activeJobId && (
           pendingActions.some((a) => a.type === "start_generation") ? (
             <CopilotActionPanel
               actions={pendingActions}
               variant="generate"
               generating={generating}
               primaryLabel={actionLabel(pendingActions.find((a) => a.type === "start_generation")!)}
-              secondaryLabel={cp.openInStudio}
               onPrimary={() => {
                 void handleStudioActions(pendingActions, true);
-                setPendingActions(null);
-              }}
-              onSecondary={() => {
-                void handleStudioActions(pendingActions, false);
                 setPendingActions(null);
               }}
             />
@@ -363,7 +387,7 @@ export default function CopilotPage() {
               variant="studio"
               primaryLabel={cp.applyStudio}
               onPrimary={() => {
-                applyStudioActions(pendingActions);
+                void confirmPresetThenApply(pendingActions);
                 setPendingActions(null);
               }}
             />

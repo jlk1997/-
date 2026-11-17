@@ -9,8 +9,14 @@ function envVar(name: string): string | undefined {
 }
 
 declare const TARO_APP_API_URL: string | undefined;
+declare const __BITTUNE_API_URL__: string | undefined;
 
 export const API_BASE = ((): string => {
+  try {
+    if (typeof __BITTUNE_API_URL__ === "string" && __BITTUNE_API_URL__) return __BITTUNE_API_URL__;
+  } catch {
+    /* phone bundle has no desktop define */
+  }
   try {
     if (typeof TARO_APP_API_URL === "string" && TARO_APP_API_URL) return TARO_APP_API_URL;
   } catch {
@@ -25,6 +31,21 @@ export const API_BASE = ((): string => {
 })();
 
 let token: string | null = null;
+let clientSurface = "h5";
+
+export function setClientSurface(surface: string | null | undefined) {
+  const value = String(surface || "h5").toLowerCase();
+  clientSurface = value === "weapp" || value === "mini" || value === "miniprogram" ? "weapp" : "h5";
+}
+
+export function getClientSurface() {
+  return clientSurface;
+}
+
+function withSurface(headers: Record<string, string>) {
+  headers["X-Vibe-Surface"] = clientSurface;
+  return headers;
+}
 
 export function setAuthToken(t: string | null) {
   token = t;
@@ -44,6 +65,7 @@ export function setToken(t: string) {
 
 export function clearToken() {
   token = null;
+  _ttlGets.clear();
 }
 
 export type HttpResponse = {
@@ -91,8 +113,18 @@ export function isRemixForbidden(err: unknown): boolean {
   return err.message === "REMIX_FORBIDDEN" || err.message.includes("二次创作") || err.message.toLowerCase().includes("remix");
 }
 
+export function isAlreadyPublished(err: unknown): boolean {
+  if (!(err instanceof ApiError) || err.status !== 400) return false;
+  const msg = err.message.toLowerCase();
+  return msg.includes("already published") || msg.includes("已发布到 discover");
+}
+
 export function isUnauthorized(err: unknown): boolean {
   return err instanceof ApiError && err.isUnauthorized;
+}
+
+export function isNeedsAuth(err: unknown): boolean {
+  return err instanceof ApiError && err.errorCode === "NEEDS_AUTH";
 }
 
 export function isRateLimited(err: unknown): boolean {
@@ -165,8 +197,22 @@ export function parseErrorPayload(body: unknown, status: number): ErrorPayload {
   if (typeof body === "object" && body !== null && "detail" in body) {
     const detail = (body as { detail: unknown }).detail;
     if (typeof detail === "string") {
-      if (detail === "Invalid credentials") return { message: "邮箱或密码不正确，如未注册请先创建账户" };
-      if (detail === "Email already registered") return { message: "该邮箱已注册，请直接登录" };
+      if (detail === "Invalid credentials" || detail === "wrong_password") {
+        return { message: "密码不对，可用验证码登录或重置密码", errorCode: "wrong_password" };
+      }
+      if (detail === "unknown_email") {
+        return { message: "这个邮箱还没有账户，请先注册", errorCode: "unknown_email" };
+      }
+      if (detail === "email_taken" || detail === "Email already registered") {
+        return { message: "这个邮箱已被使用", errorCode: "email_taken" };
+      }
+      if (detail === "same_email") return { message: "新邮箱不能和当前邮箱一样", errorCode: "same_email" };
+      if (detail === "email_mismatch") return { message: "请先验证当前登录邮箱", errorCode: "email_mismatch" };
+      if (detail === "email_unbound") return { message: "请先绑定可用邮箱", errorCode: "email_unbound" };
+      if (detail === "otp_required") return { message: "请先获取并填写邮箱验证码", errorCode: "otp_required" };
+      if (detail === "otp_invalid") return { message: "验证码不对或已过期，请重新获取", errorCode: "otp_invalid" };
+      if (detail === "otp_unavailable") return { message: "验证码暂时发不出去，请稍后再试", errorCode: "otp_unavailable" };
+      if (detail === "otp_cooldown") return { message: "验证码刚发过，请稍后再试", errorCode: "otp_cooldown" };
       if (detail === "Username already taken") return { message: "用户名已被占用" };
       if (detail === "Work already published") return { message: "该作品已发布到 Discover" };
       if (detail === "Invalid work_id") return { message: "作品 ID 无效，请刷新页面后重试" };
@@ -189,6 +235,7 @@ export function parseErrorPayload(body: unknown, status: number): ErrorPayload {
       }
       if (code === "WORK_VERSION_CONFLICT") return { message: "WORK_VERSION_CONFLICT", errorCode: code };
       if (code === "DRAFT_VERSION_CONFLICT") return { message: "DRAFT_VERSION_CONFLICT", errorCode: code };
+      if (code === "NEEDS_AUTH") return { message: message || "NEEDS_AUTH", errorCode: code };
       if (typeof message === "string" && message) return { message, errorCode: code };
     }
     if (Array.isArray(detail)) {
@@ -200,7 +247,7 @@ export function parseErrorPayload(body: unknown, status: number): ErrorPayload {
     }
   }
   if (status === 401) return { message: "请先登录后再继续" };
-  if (status === 402) return { message: "创作额度不足，请前往定价页充值" };
+  if (status === 402) return { message: "次数不够，请前往充值" };
   if (status === 403) return { message: "没有权限执行此操作" };
   if (status === 409) return { message: "请求冲突，请刷新后重试" };
   if (status >= 500) return { message: "服务器错误，请稍后重试" };
@@ -226,7 +273,26 @@ export async function parseResponse<T>(res: HttpResponse): Promise<T> {
 
 const _inflightGets = new Map<string, Promise<unknown>>();
 const _jobGetLastAt = new Map<string, number>();
+const _ttlGets = new Map<string, { at: number; data: unknown }>();
 const JOB_STATUS_GET_MIN_MS = 2000;
+const GET_TIMEOUT_MS = 12_000;
+const ME_TTL_MS = 8_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new ApiError("请求超时，请稍后重试", 408)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
 
 function isJobStatusGet(path: string) {
   return /^\/jobs\/[^/]+$/.test(path);
@@ -243,17 +309,24 @@ export async function request<T>(path: string, options: ApiRequestInit = {}): Pr
         await new Promise((resolve) => setTimeout(resolve, waitMs));
       }
     }
+    if (path === "/auth/me") {
+      const hit = _ttlGets.get(path);
+      if (hit && Date.now() - hit.at < ME_TTL_MS) return hit.data as T;
+    }
     const existing = _inflightGets.get(path);
     if (existing) return existing as Promise<T>;
     const promise = (async () => {
-      const headers: Record<string, string> = {
+      const headers: Record<string, string> = withSurface({
         ...(rest.headers as Record<string, string>),
-      };
+      });
       if (token) headers.Authorization = `Bearer ${token}`;
-      const res = await httpFetch(`${API_BASE}${path}`, { ...rest, headers, method: "GET" });
+      const res = await withTimeout(httpFetch(`${API_BASE}${path}`, { ...rest, headers, method: "GET" }), GET_TIMEOUT_MS);
       const data = await parseResponse<T>(res);
       if (isJobStatusGet(path)) {
         _jobGetLastAt.set(path, Date.now());
+      }
+      if (path === "/auth/me") {
+        _ttlGets.set(path, { at: Date.now(), data });
       }
       return data;
     })().finally(() => {
@@ -263,9 +336,9 @@ export async function request<T>(path: string, options: ApiRequestInit = {}): Pr
     return promise;
   }
 
-  const headers: Record<string, string> = {
+  const headers: Record<string, string> = withSurface({
     ...(rest.headers as Record<string, string>),
-  };
+  });
   if (token) headers.Authorization = `Bearer ${token}`;
   if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
   // WeChat mini-program has no global FormData — never touch the identifier unless it exists.
@@ -283,7 +356,7 @@ export async function uploadRequest<T>(
   form: FormData,
   options: UploadRequestOptions = {},
 ): Promise<T> {
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = withSurface({});
   if (token) headers.Authorization = `Bearer ${token}`;
   if (options.idempotencyKey) headers["Idempotency-Key"] = options.idempotencyKey;
   const res = await httpFetch(`${API_BASE}${path}`, {

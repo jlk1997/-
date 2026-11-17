@@ -7,7 +7,7 @@
 
 .ui-mode-tile {
   background: $obsidian;
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border-subtle;
   border-radius: $radius-lg;
   padding: $space-sm $space-xs;
   min-height: 168rpx;
@@ -21,13 +21,11 @@
   &--active {
     border-color: $gold;
     background: $gold-muted;
-    box-shadow: $shadow-gold;
   }
 
   &--accent .ui-mode-tile__icon {
     background: $gold-muted;
-    border: 1rpx solid $border-ritual;
-    box-shadow: $shadow-gold;
+    border: 1rpx solid $border;
   }
 }
 

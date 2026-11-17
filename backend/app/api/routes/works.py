@@ -9,7 +9,7 @@ from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.api.deps import authenticate_token, get_current_user, require_scope, security
+from app.api.deps import authenticate_token, get_current_user, get_optional_user, require_scope, security
 from app.api.rate_limits import check_generation_rate_limit
 from app.services.legal import require_ai_notice
 from app.config import settings
@@ -28,13 +28,15 @@ from app.api.schemas import (
 from app.core.playlist_orchestrator import resolve_playlist_title
 from app.database import get_db
 from app.models.schemas import GenerationJob, Post, User, Work
+from app.services.workbench import detach_work_from_sessions
 from app.services.community_sync import sync_post_caption_for_work_rename
+from app.services.credit_estimates import variation_credit_cost
 from app.services.credits import GENERATION_COST, PLAYLIST_COST
 from app.services.generation_gate import charge_generation_credits, with_credits_charged
 from app.services.generation_jobs import create_generation_job, lookup_idempotent_job
 from app.services.job_progress import job_response_with_credits, job_to_response
 from app.services.tenant import scope_by_tenant
-from app.services.hls import build_hls_playlist, hls_prefix_from_work
+from app.services.hls import hls_prefix_from_work
 from app.services.media_playback import (
     is_safe_segment_name,
     protected_hls_playlist_url,
@@ -46,11 +48,13 @@ from app.services.media_playback import (
 from app.services.storage import get_storage_service
 from app.services.work_access import (
     MAX_UPLOAD_BYTES,
+    assert_seed_rights,
     can_view_work,
-    get_seed_work,
     get_viewable_work,
     get_viewable_work_optional,
     get_work_or_404,
+    parse_uuid,
+    validate_audio_upload,
 )
 from app.services.job_dispatch import dispatch_playlist, dispatch_single, dispatch_variations
 
@@ -72,6 +76,12 @@ def work_to_response(
     lyrics: str | None = None,
     lyrics_timeline: list | None = None,
     user: User | None = None,
+    live_stores: int | None = None,
+    artist_name: str | None = None,
+    owner_username: str | None = None,
+    community_post_id: str | None = None,
+    community_caption: str | None = None,
+    superseded_by_work_id: str | None = None,
 ) -> WorkResponse:
     cover = work.cover_url
     if work.cover_storage_key:
@@ -79,8 +89,10 @@ def work_to_response(
             cover = get_storage_service().get_presigned_url(work.cover_storage_key)
         except Exception:
             pass
+    from app.services.c2pa import c2pa_state as _c2pa_state
+
     pps = work.post_process_status or {}
-    c2pa_verified = bool(pps.get("c2pa_done") or pps.get("c2pa"))
+    state = _c2pa_state(pps)
     return WorkResponse(
         id=str(work.id),
         title=work.title,
@@ -99,12 +111,63 @@ def work_to_response(
         allow_remix=work.allow_remix if work.allow_remix is not None else True,
         license=work.license or "allow_remix",
         post_process_status=work.post_process_status or {},
-        c2pa_verified=c2pa_verified,
+        c2pa_verified=state == "embedded",
+        c2pa_state=state,
         version=getattr(work, "version", 1) or 1,
         is_ai_generated=getattr(work, "is_ai_generated", True),
         lyrics=lyrics,
         lyrics_timeline=lyrics_timeline,
+        release_status=getattr(work, "release_status", None),
+        isrc=getattr(work, "isrc", None),
+        is_owner=bool(user is not None and getattr(user, "id", None) == work.owner_id),
+        live_stores=int(live_stores or 0),
+        commercial=bool(getattr(work, "commercial_cleared_at", None)),
+        artist_name=artist_name,
+        owner_username=owner_username,
+        community_post_id=community_post_id,
+        community_caption=community_caption,
+        from_workbench=bool(pps.get("workbench")),
+        superseded_by_work_id=superseded_by_work_id,
     )
+
+
+def works_to_responses(db: Session, works: list[Work], user: User | None = None) -> list[WorkResponse]:
+    from app.services.distribution.passport import live_store_counts
+
+    ids = [w.id for w in works]
+    counts = live_store_counts(db, ids)
+    post_by_work: dict[str, Post] = {}
+    owners = {w.id: w.owner_id for w in works}
+    if ids:
+        for post in (
+            db.query(Post)
+            .filter(Post.work_id.in_(ids))
+            .order_by(Post.created_at.desc())
+            .all()
+        ):
+            if owners.get(post.work_id) != post.author_id:
+                continue
+            key = str(post.work_id)
+            if key not in post_by_work:
+                post_by_work[key] = post
+    successor = {
+        w.parent_work_id: str(w.id)
+        for w in works
+        if w.parent_work_id
+        and isinstance(w.post_process_status, dict)
+        and w.post_process_status.get("workbench")
+    }
+    return [
+        work_to_response(
+            w,
+            user=user,
+            live_stores=counts.get(w.id, counts.get(str(w.id), 0)),
+            community_post_id=str(post_by_work[str(w.id)].id) if str(w.id) in post_by_work else None,
+            community_caption=post_by_work[str(w.id)].caption if str(w.id) in post_by_work else None,
+            superseded_by_work_id=successor.get(w.id),
+        )
+        for w in works
+    ]
 
 
 def _extract_lyrics(db: Session, work: Work) -> tuple[str | None, list[dict] | None]:
@@ -225,7 +288,7 @@ def list_works(
     else:
         query = query.order_by(Work.created_at.desc())
     works = query.limit(min(max(limit, 1), 200)).all()
-    return [work_to_response(w, user=user) for w in works]
+    return works_to_responses(db, works, user)
 
 
 @router.get("/search")
@@ -248,18 +311,59 @@ def search_works(
         .limit(30)
         .all()
     )
-    return [work_to_response(w, user=user) for w in works]
+    return works_to_responses(db, works, user)
+
+
+@router.get("/{work_id}/passport")
+def get_work_passport(
+    work_id: str,
+    user: User | None = Depends(get_optional_user),
+    db: Session = Depends(get_db),
+):
+    from app.services.distribution.passport import reveal_passport
+
+    return reveal_passport(db, work_id=work_id, viewer=user)
 
 
 @router.get("/{work_id}", response_model=WorkResponse)
 def get_work(
     work_id: str,
-    user: User = Depends(get_current_user),
+    user: User | None = Depends(get_optional_user),
     db: Session = Depends(get_db),
 ):
-    work = get_viewable_work(db, work_id, user)
+    from app.services.distribution.passport import live_store_count
+
+    work = get_viewable_work_optional(db, work_id, user)
     lyrics, timeline = _extract_lyrics(db, work)
-    return work_to_response(work, lyrics=lyrics, lyrics_timeline=timeline, user=user)
+    owner = getattr(work, "owner", None)
+    owner_username = getattr(owner, "username", None) if owner is not None else None
+    artist_name = (getattr(owner, "display_name", None) or owner_username) if owner is not None else None
+    post = (
+        db.query(Post)
+        .filter(Post.work_id == work.id)
+        .order_by(Post.created_at.desc())
+        .first()
+        if user is not None and getattr(user, "id", None) == work.owner_id
+        else None
+    )
+    successor_id = None
+    if user is not None and getattr(user, "id", None) == work.owner_id:
+        from app.services.royalty.hub import unpublished_workbench_successor
+
+        child = unpublished_workbench_successor(db, work)
+        successor_id = str(child.id) if child else None
+    return work_to_response(
+        work,
+        lyrics=lyrics,
+        lyrics_timeline=timeline,
+        user=user,
+        live_stores=live_store_count(db, work.id),
+        artist_name=artist_name,
+        owner_username=owner_username,
+        community_post_id=str(post.id) if post else None,
+        community_caption=post.caption if post else None,
+        superseded_by_work_id=successor_id,
+    )
 
 
 @router.get("/{work_id}/quality")
@@ -454,7 +558,8 @@ def get_hls_playlist(
 
         play_ticket = issue_playback_ticket(str(work.id), user.id)
     try:
-        raw = build_hls_playlist(prefix, expires=settings.media_hls_segment_presign_seconds)
+        key = f"{prefix.rstrip('/')}/index.m3u8"
+        raw = get_storage_service().get_object_bytes(key).decode("utf-8")
         playlist = rewrite_hls_playlist_for_gateway(raw, work_id=str(work.id), ticket=play_ticket)
     except Exception as exc:
         raise HTTPException(status_code=404, detail="HLS playlist not found") from exc
@@ -491,10 +596,34 @@ def get_hls_segment(
     return StreamingResponse(iterator, status_code=status, media_type="video/mp2t", headers=headers)
 
 
+def _preflight_or_400(payload) -> None:
+    from app.services.generation_preflight import GenerationPreflightError, preflight_music_request
+
+    spec = getattr(payload, "creative_spec", None)
+    override = ""
+    if spec is not None:
+        override = getattr(spec, "custom_prompt_override", None)
+        if override is None and isinstance(spec, dict):
+            override = spec.get("custom_prompt_override") or ""
+    try:
+        preflight_music_request(
+            lyrics=getattr(payload, "lyrics", None),
+            instrumental=bool(getattr(payload, "instrumental", True)),
+            lyrics_optimizer=getattr(payload, "lyrics_optimizer", None),
+            prompt=str(override or ""),
+            text_intent=getattr(payload, "text_intent", None),
+            mode=getattr(payload, "mode", None),
+        )
+    except GenerationPreflightError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 def _validate_reference_work(db: Session, reference: dict | None, user: User) -> None:
     if not reference or not reference.get("work_id"):
         return
-    get_viewable_work(db, reference["work_id"], user)
+    from app.services.reference_track import assert_reference_rights
+
+    assert_reference_rights(db, reference["work_id"], user)
 
 
 @router.post("/generate/single", response_model=JobResponse)
@@ -511,7 +640,7 @@ async def generate_single(
         return job_response_with_credits(db, existing, user.id)
 
     if payload.seed_work_id:
-        get_seed_work(db, payload.seed_work_id, user)
+        assert_seed_rights(db, payload.seed_work_id, user)
     _validate_reference_work(db, payload.reference, user)
 
     preview_count = payload.preview_pick_count or 0
@@ -520,6 +649,7 @@ async def generate_single(
             status_code=400,
             detail="每次生成仅支持 1 个预览，多版本请使用变体实验室并按额度计费",
         )
+    _preflight_or_400(payload)
 
     charged = charge_generation_credits(db, user.id, cost=GENERATION_COST, defer_commit=True)
 
@@ -633,14 +763,17 @@ async def generate_playlist(
 
     if file:
         seed_bytes = await file.read()
-        if len(seed_bytes) > MAX_UPLOAD_BYTES:
-            raise HTTPException(status_code=400, detail="File too large (max 50MB)")
+        upload_err = validate_audio_upload(seed_bytes, file.content_type)
+        if upload_err:
+            raise HTTPException(status_code=400, detail=upload_err)
         seed_filename = file.filename or seed_filename
         storage_key = f"seeds/{user.id}/{uuid.uuid4()}_{seed_filename}"
         seed_storage_key, _ = get_storage_service().upload_bytes(seed_bytes, storage_key)
 
     if resolved_seed_work_id:
-        get_seed_work(db, resolved_seed_work_id, user)
+        from app.services.work_access import assert_seed_rights
+
+        assert_seed_rights(db, resolved_seed_work_id, user)
 
     creative_spec = _parse_json_form(creative_spec_json, MusicCreativeSpecSchema) if creative_spec_json else None
 
@@ -714,7 +847,7 @@ async def generate_playlist_body(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     if payload.seed_work_id:
-        get_seed_work(db, payload.seed_work_id, user)
+        assert_seed_rights(db, payload.seed_work_id, user)
     _validate_reference_work(db, journey_config.get("reference"), user)
 
     charged = charge_generation_credits(db, user.id, cost=PLAYLIST_COST, defer_commit=True)
@@ -755,12 +888,22 @@ class VariationsRequest(BaseModel):
     text_intent: str | None = None
     seed_work_id: str | None = None
     title: str = "变体"
-    count: int = Field(default=3, ge=2, le=5)
+    count: int = Field(default=2, ge=1, le=5)
     instrumental: bool = True
     moods: list[str] = []
     genres: list[str] = []
     bpm: int | None = None
     key: str | None = None
+    lyrics: str | None = Field(default=None, max_length=8000)
+    style_tags: str | None = Field(default=None, max_length=2000)
+    creative_spec: dict | None = None
+    reference: dict | None = None
+    remelt: bool = False
+    mode: str | None = None
+    freedom: str | None = None
+    quality: str | None = None
+    quick: bool = False
+    vocal: dict | None = None
 
 
 class BatchDeleteRequest(BaseModel):
@@ -780,6 +923,20 @@ def get_remix_tree(
     if not tree:
         raise HTTPException(status_code=404, detail="Work not found")
     return tree
+
+
+@router.get("/{work_id}/similar")
+def get_similar_works(
+    work_id: str,
+    limit: int = 6,
+    user: User | None = Depends(get_optional_user),
+    db: Session = Depends(get_db),
+):
+    from app.services.recommendation import list_similar_works
+    from app.services.work_access import get_viewable_work_optional
+
+    work = get_viewable_work_optional(db, work_id, user)
+    return {"works": list_similar_works(db, work, limit=min(max(limit, 1), 12))}
 
 
 @router.get("/{work_id}/derivatives")
@@ -809,9 +966,11 @@ async def generate_variations(
 
     count = payload.count
     if payload.seed_work_id:
-        get_seed_work(db, payload.seed_work_id, user)
+        assert_seed_rights(db, payload.seed_work_id, user)
+    _validate_reference_work(db, payload.reference, user)
+    _preflight_or_400(payload)
 
-    charged = charge_generation_credits(db, user.id, cost=count, defer_commit=True)
+    charged = charge_generation_credits(db, user.id, cost=variation_credit_cost(count), defer_commit=True)
 
     job = create_generation_job(
         db,
@@ -860,6 +1019,32 @@ def embed_work_branding(
     return embed_branding_for_tenant(db, tid)
 
 
+class EmbedCompleteBody(BaseModel):
+    listen_ratio: float = Field(ge=0, le=1)
+    visitor: str | None = None
+
+
+@router.post("/embed/{work_id}/complete")
+def embed_complete(
+    work_id: str,
+    payload: EmbedCompleteBody,
+    request: Request,
+    user: User | None = Depends(get_optional_user),
+    db: Session = Depends(get_db),
+):
+    from app.services.embed_engagement import record_embed_complete
+
+    host = request.client.host if request.client else None
+    return record_embed_complete(
+        db,
+        work_id=work_id,
+        listen_ratio=payload.listen_ratio,
+        user=user,
+        visitor=payload.visitor,
+        host=host,
+    )
+
+
 @router.post("/batch-delete")
 def batch_delete_works(
     payload: BatchDeleteRequest,
@@ -870,7 +1055,41 @@ def batch_delete_works(
     for wid in payload.work_ids:
         work = db.query(Work).filter(Work.id == parse_uuid(wid, field="work_id"), Work.owner_id == user.id).first()
         if work:
+            detach_work_from_sessions(db, user.id, work.id)
             db.delete(work)
             deleted += 1
     db.commit()
     return {"deleted": deleted}
+
+
+@router.post("/{work_id}/reprocess")
+def reprocess_work(
+    work_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Re-enqueue post-processing for a degraded work."""
+    work = db.query(Work).filter(Work.id == uuid.UUID(work_id), Work.owner_id == user.id).first()
+    if not work:
+        raise HTTPException(status_code=404, detail="Work not found")
+    pps = work.post_process_status or {}
+    if pps.get("state") != "degraded":
+        raise HTTPException(status_code=400, detail="Work is not in degraded state")
+    from app.workers.tasks import post_process_work_task
+
+    post_process_work_task.apply_async(
+        args=[str(work.id), str(user.id)],
+        queue="post_process",
+    )
+    return {"reprocessing": True}
+
+
+@router.get("/{work_id}/timeline")
+def work_timeline_endpoint(
+    work_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from app.services.distribution.timeline import work_timeline
+
+    return work_timeline(db, work_id, str(user.id))

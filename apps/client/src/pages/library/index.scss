@@ -1,3 +1,7 @@
+.library-page {
+  padding-bottom: calc(env(safe-area-inset-bottom) + #{$space-xl});
+}
+
 .library-tabs {
   margin-bottom: $space-lg;
 }
@@ -12,7 +16,16 @@
   }
 }
 
+.library-bench {
+  margin-bottom: $space-md;
+}
+
 .library-manage {
   margin-top: $space-md;
   color: $gold;
+}
+
+.library-panel .ui-status {
+  margin-top: 0;
+  margin-bottom: $space-md;
 }

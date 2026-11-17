@@ -4,6 +4,8 @@ import { useActiveJobOptional } from "../contexts/ActiveJobProvider";
 import { clearActiveGeneration, loadActiveGeneration } from "../utils/generationStorage";
 import { isTerminalJobStatus } from "../utils/generationPhases";
 import { isLoggedIn } from "../utils/auth";
+import { remixSourceFromJob } from "../utils/restoreGeneration";
+import { workbenchUrl } from "../utils/workbenchNav";
 
 /** One-shot restore of active job into context on app boot + background progress tracking. */
 export function ActiveJobHydrator() {
@@ -36,8 +38,15 @@ export function ActiveJobHydrator() {
           const active = await vibeApi.getActiveJob();
           if (!active?.id || isTerminalJobStatus(active.status)) return;
           jobId = active.id;
-          returnUrl = "/pages/create/index";
           startedAt = new Date().toISOString();
+          const src = active.remix_source?.work_id;
+          returnUrl =
+            (active.job_type === "workbench_render" || active.remix_source?.remix_intent === "workbench") && src
+              ? workbenchUrl(src)
+              : "/pages/create/index";
+          if (active.job_type === "workbench_render" || active.remix_source?.remix_intent === "workbench") {
+            jobType = "workbench";
+          }
         } catch {
           return;
         }
@@ -51,16 +60,26 @@ export function ActiveJobHydrator() {
           clearActiveGeneration();
           return;
         }
+        const remixSource = stored?.remixSource || remixSourceFromJob(job);
+        const resolvedType =
+          job.job_type === "workbench_render" || job.remix_source?.remix_intent === "workbench"
+            ? "workbench"
+            : jobType;
+        const resolvedReturn =
+          resolvedType === "workbench" && remixSource?.workId
+            ? workbenchUrl(remixSource.workId)
+            : returnUrl;
         setJob({
           jobId,
           progress: Math.round((job.progress || 0) * 100),
           status: job.status,
           message: job.status_message || "",
-          returnUrl,
+          returnUrl: resolvedReturn,
           phase: job.phase,
           workId: job.result?.work_id as string | undefined,
           startedAt,
-          jobType,
+          jobType: resolvedType,
+          remixSourceTitle: remixSource?.title,
         });
       } catch {
         /* ignore */

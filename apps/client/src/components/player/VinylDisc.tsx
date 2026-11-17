@@ -1,15 +1,17 @@
 import { View, Image } from "@tarojs/components";
 import { clsx } from "../../utils/clsx";
+import { CoverPlate } from "../ui/CoverPlate";
 import "./VinylDisc.scss";
 
 type Props = {
   coverUrl?: string;
+  title?: string;
   spinning?: boolean;
   playing?: boolean;
   className?: string;
 };
 
-export function VinylDisc({ coverUrl, spinning, playing, className }: Props) {
+export function VinylDisc({ coverUrl, title, spinning, playing, className }: Props) {
   return (
     <View className={clsx("vinyl-disc", playing && "vinyl-disc--playing", className)}>
       <View className={clsx("vinyl-disc__pulse", playing && "vinyl-disc__pulse--on")} />
@@ -19,7 +21,7 @@ export function VinylDisc({ coverUrl, spinning, playing, className }: Props) {
         {coverUrl ? (
           <Image className="vinyl-disc__cover" src={coverUrl} mode="aspectFill" />
         ) : (
-          <View className="vinyl-disc__cover vinyl-disc__cover--fallback" />
+          <CoverPlate className="vinyl-disc__cover" title={title || "音"} seed={title} size="lg" />
         )}
         <View className="vinyl-disc__ring" />
         <View className="vinyl-disc__hole" />

@@ -8,7 +8,7 @@
   padding: $space-sm $space-xs;
   min-height: 160rpx;
   background: $obsidian;
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border-subtle;
   border-radius: $radius-lg;
   overflow: hidden;
 
@@ -45,7 +45,7 @@
     height: 72rpx;
     border-radius: $radius-md;
     background: $slate-veil;
-    border: 1rpx solid $border-ritual;
+    border: 1rpx solid $border-subtle;
     display: flex;
     align-items: center;
     justify-content: center;

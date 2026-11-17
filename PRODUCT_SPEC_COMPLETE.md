@@ -9,7 +9,7 @@
 
 ### 0.1 一句话
 
-**用情绪（Arousal–Valence）驱动 AI 音乐创作，并以可验证溯源连接创作者社区。**
+**妙响帮你把歌送进抖音；比特音帮你把歌唱到全世界，并把每家店的钱收回来。** 用情绪（Arousal–Valence）驱动创作，再以授权多店收获 + 非独家权利做成创作者操作系统。
 
 ### 0.2 核心用户画像
 
@@ -21,12 +21,21 @@
 | **运营者** | 话题与挑战 | Admin 挑战 + Preset +  moderation |
 | **B 端租户** | 白标 / API 集成 | 多租户 + Open API + 额度 |
 
-### 0.3 不在产品内核（独立集成或 v6+）
+### 0.3 内核与边界（2026-08 改口）
 
-- Spotify / Apple Music **商店分发**（需第三方 distributor）
-- 全功能 DAW 编辑器（仅参数级 + 歌词级定制）
-- 实时协同编辑（Google Docs 式）
-- 自研音乐模型（依赖 MiniMax + Essentia）
+**进入内核：**
+
+- **多店分发**：聚合投递 + 会话协助短视频店 + 护照/切片 SOP。合作方 REST（DistroKid / TuneCore / 国内厂牌）有 key 时代投，否则进 `ops_queue`。
+- **能出片的轻工作室 / 工作台**：真分轨（审核级必须 Demucs；ffmpeg 频段只作 preview，不能当审核包 / originality.zip）、变速变调、一键母带、锁词翻唱、续写 15–30 秒。**美化台**（手机简易控制台：需求包 / 强度 / 四推子 / 切头尾）与 **调音台**（电脑专业控制台：波形分轨精编 + 效果架）共用 MixGraph v2；打成的永远是一首新的立体声 Work。电脑时间线是可复现的分轨片段精编（复用作品 `waveform_url`、裁剪 / 拆分 / 淡化 / 声像 / 选 take），不是 VST 宿主，也不是店端多轨工程。官方包可预烘焙 6 秒预听（无用户会话时可用目录演示曲）。Work B 回写 `applied_pack_id` / `pack_id`，创作者 OS 按已发行数计，不是 bounce 次数代理。会话内续写 / 换桥 / 同款走同一条 generate 闸，写进 MixGraph（选区可落成 take clip，同区多 take 选用后 bounce），不跳回创作首页。轻编续写 / 换桥 / 同款、质检「再炼」、完成通知都回到同一会话，不把用户丢回创作首页。助手 `open_beautify` 打开美化台；创作页风格包仍是 `apply_preset`，二者不得混称。单独说「工作台」进美化台，「厂牌台 / 发行工作台」仍进发行 OS。Work B 走同一套后处理 / QC / 护照 / 发行旅程；待发行列表、本周建议、发行向导和一键代发都优先美化母带，不拿被取代的 Work A 去上架。曲库仍能看到原曲，但会标「已有美化母带」。本周情绪掉落、电台试投、听感签到、作品详情和厂牌台开试投都指向 Work B（`start/get radio-trial` 返回 B 的 `work_id`）；只有 A 上已有进行中的试投才不改投。个人中心进行中任务按 `returnUrl` 回美化台，不误送创作首页。市场美化包买完套进用户选中的成曲会话；套包只替换 `origin=pack` 节点，不丢用户剪辑。分轨包在未准备 `edit_lanes` 时降级打在总线，并提示去电脑准备分轨后听完整效果。效果包只冻结可迁移链（节点 + 默认推子 + 需求标签），永不带某首歌的 clips。上架包禁止外部 IR / 远程采样；需求定制若带参考轨，走现有 remix 权利闸。创作页商店只进配方货架，不进美化包。轻编变速 / 变调 / 母带只映射进美化台 MixGraph，不再原地打第三套母带。会话内再生成失败只给 regen 节点打失败戳，不改 `last_result_work_id`；已扣额度走同一条 `fail_job` 退款。编辑分轨（`edit_lanes`）只给推子 / 精编用，审核证明包（`review_stems`）只进 originality.zip，二者不得混称。店端仍是 `tracks=1`。不做 Pro Tools / 假 Logic 工程上架。
+- **授权收获**：官方 API / 合作方 webhook / 用户 CSV / 用户本人已登录后台的会话收获。结算只认 `/seats/harvest`。
+
+**仍不在内核：**
+
+- 完整 DAW 宿主（无 VST 插件、无钢琴卷帘承诺、无实时多人协同、不把分轨当店端多曲）
+- 未授权爬取、存密码、解验证码、收他人后台
+- 自研基础音乐大模型当第一优先级
+- 三年独家发行、永久免费硬刚字节补贴
+- 微信小程序里承诺「一键全球上架」（小程序只做听/做/签到/看钱/套官方美化包；调音台只在 H5）
 
 ### 0.4 设计铁律
 
@@ -35,6 +44,24 @@
 3. 异步任务一律可 cancel、可 WS 追踪、可 poll 降级
 4. Taro-only：H5 Web + 微信小程序共用 `apps/client`，SDK 为 `packages/api-client`
 5. **Intent-First**：种子音频非默认路径；`prompt_journey` 为 Playlist 默认模式（见 [PRODUCT_INTENT_FIRST_ARCHITECTURE.md](PRODUCT_INTENT_FIRST_ARCHITECTURE.md))
+
+### 0.5 工作台主电路（美化台 / 调音台）
+
+生成成曲 → 打开同一条 MixGraph 会话（会话永远住在 Work A；打开美化母带 B 也续上 A 的会话）→ 套包 / 旋钮 / 会话内再生成 → 打成立体声 Work B → 同一套后处理 / QC / 护照 → 台内下一扇门按 B 的状态走（质检前电台、质检后发行、已上架看配送）→ 切片 / Sync / 收获。
+
+| 闸 | 指向 | 不得做 |
+|----|------|--------|
+| 发行 / 一键代发 / 本周建议 / 待发行 | 未上架的 Work B | 拿被取代的 A 去店端 |
+| Sync 上架 / 买授权 / 切片回执 | 主人改 B；买家只在 B 已上架时改投 B | 把未上架的 B 卖成 A 的授权，或打断 A 上已有的 live 试投 |
+| 电台试投 / 本周掉落 / 听感签到 | B（`work_id` 以接口为准） | A 已有 live 试投时改投 B |
+| 曲库 / 选曲器 | A 和 B 都可见，文案分开 | 假装 A 已消失，或把 B 当社区 remix |
+| 通知 / 助手 / 轻编续写 / 个人中心任务 | 源曲 A 的会话 | 把用户丢回创作首页 |
+| 额度 | 官方包打母带 0；自定义图含 `ai_*` 扣 1；regen 走 `GENERATION_COST` | 把额度写成法币版税 |
+| 分轨 | `edit_lanes` 给推子；`review_stems` 进 originality.zip | 混称，或 DistroKid `tracks>1` |
+| 调音台时间线 | 可打母带的分轨波形 + clips（H5 canvas / `waveform_url` + 时间尺；未准备分轨只显示立体声一条轨） | 假 Logic 工程、VST、钢琴卷帘、店端多轨；未准备时甩空人声/鼓轨 |
+| 效果包 | 冻结 nodes / 默认推子 / need_tags；官方 6 秒预听可预烘焙；上架预检禁止外部 IR / 远程采样 | 把某首歌的 clips / regen take / 热歌 IR 写进上架包；把 bounce 次数写成已发行数 |
+
+Phase 5（用户 IR、自动化曲线、MixGraph `.vibe` 工程导出、Open API）默认不做。
 
 ---
 
@@ -50,10 +77,10 @@
 | `/auth/me` | ✅ | ✅ | ◐ | ✅ | — |
 | 偏好 moods/genres | ✅ | ✅ | ⬜ | ✅ | Settings 动态拉 `/emotion/tags` |
 | 资料 display_name/bio | ✅ | ◐ | ⬜ | ◐ | **Profile 编辑页** |
-| Avatar 上传 | ⬜ | ⬜ | ⬜ | ⬜ | MinIO presigned upload |
-| 公开主页 `/u/[username]` | ⬜ | ⬜ | ⬜ | ⬜ | P0 |
-| Follow / 粉丝列表 | ✅ API | ⬜ | ⬜ | ◐ | P0 |
-| 封禁 / 注销 | ⬜ | ⬜ | ⬜ | ⬜ | Admin P1 |
+| Avatar 上传 | ✅ | ✅ | ◐ | ✅ | 设置页 + 个人页；MinIO presigned PUT |
+| 公开主页 `/u/[username]` | ✅ API | ✅ 用户页 | ◐ | ✅ | 已有 `pages/user`，不是独立 `/u/` 路由；非创作者 OS 瓶颈 |
+| Follow / 粉丝列表 | ✅ API | ✅ FollowButton | ◐ | ✅ | Feed / 用户页可关注 |
+| 封禁 / 注销 | ✅ | ✅ | ⬜ | ✅ | `POST/DELETE /admin/users/{id}/ban`；封禁后无法登录 |
 
 ### 1.2 Studio 创作
 
@@ -63,7 +90,7 @@
 | **Track (Single)** | text_intent、bpm、key、moods、genres、seed | ✅ | + Reference |
 | **Vocals** | 歌词生成/编辑、optimizer、language | ✅ | + 人声 hint |
 | **Text Journey** | plan_journey → waypoints → playlist | ✅ | + Preset 绑定 |
-| **Variation Lab** | 多 seed 网格 | ⬜ | P1 |
+| **Variation Lab** | 多 seed 网格 | ◐ 组件已有 | 非本轮创作者 OS；不要当未做扫尾 |
 | **Music-Cover** | one_step / two_step、modified_lyrics | ✅ | + 许可校验 |
 | **Cover Image** | image-01 专辑图 | ✅ API | Works 卡片展示 post-process 状态 |
 | **Regenerate** | 同参不同 seed | ✅ | Variation 子集 |
@@ -99,7 +126,7 @@
 | 功能 | 状态 | v5+ |
 |------|------|-----|
 | 发布 Post | ✅ | 发布时选 Remix 许可 |
-| Feed personalized | ✅ | 排序 UI latest/popular |
+| Feed personalized | ✅ | 登录按情绪相似再叠完播热度；未登录只按完播热度，芯片不写「符合你的口味」 |
 | Like | ✅ | — |
 | Comment | ✅ | @mention P2 |
 | Remix | ✅ | 图谱 + 许可 |
@@ -129,7 +156,8 @@
 | .vibe / json export | ✅ | PDF 摘要 P2 |
 | C2PA sidecar | ✅ | **二进制嵌入 P1** |
 | 链上 anchor | ◐ mock | 真实 RPC P2 |
-| Remix 许可字段 | ⬜ | P2 |
+| Remix 许可字段 | ✅ | 社区 Remix + generate seed/参考轨硬闸 |
+| 发行护照 / 权利证书 | ✅ | 非独家可见、链到谱系 |
 
 ### 1.8 Admin 与平台
 
@@ -143,13 +171,32 @@
 | Style Preset CRUD | ✅ | Admin 预设管理 |
 | 多租户隔离 | ◐ DB | Query 全链路 P2 |
 | API Key / Webhook | ✅ | Settings H5 |
-| 额度 Credits | ✅ | Welcome 25 · 签到/任务 · 软付费墙 · Billing Hub |
+| 额度 Credits | ✅ | Welcome 15 · 签到/任务 · 软付费墙 · Billing Hub |
 
-### 1.9 客户端（Taro-only）
+### 1.9 创作者 OS（分发 · 精编 · 授权收获）
+
+| 功能 | 状态 | 验收 |
+|------|------|------|
+| 确认一次发行 / `POST /releases/quick` | ✅ | QC 过了少填表 |
+| 17 店目录 + 完成带三档（填表 / 只听数据 / 运营队列） | ✅ | 默认只勾能填表的店；Spotify 未配对不自动勾；短视频进运营队列，不伪称已上架结算 |
+| SKU 工厂四灯（母带 WAV / Demucs 证明 / clip-pack.zip / 伴奏独立 Work） | ✅ | 切片就绪=zip key；ffmpeg 预览 ≠ 审核分轨；`tracks=1` |
+| Suggested Ship（QC+SKU+席位 1～3 店） | ✅ | 其余折叠；未配对的只听数据店不自动勾；不假装一键全球 DSP |
+| DistroKid / TuneCore webhook 规范化 | ◐ | 有合作方 key 才代投；无 key 进运营队列，不是故障 |
+| 席位 + 连接器 + 农场 | ✅ | 只读用户已登录后台 |
+| 每店抽取器版本 + HTML 夹具 CI | ✅ | 店改版要告警 |
+| 收获行置信度 / 低于 0.9 禁止自动确认 | ✅ | 无官方数必须展示置信度；有结算草稿时钱一览去草稿页，不叫醒再抄；填表中断且扩展在线只叫醒一次接着填；新的店页回执对已授权席位马上排队抄账，未签分发许可不排收获 |
+| 农场 SRE 指标 | ◐ | `farm_health` + drain 计数 |
+| 轻工作室：分轨 / 变速变调 / 母带 / 续写 | ✅ | 10 秒内有结果；ffmpeg 频段只作 preview |
+| 美化台 / 调音台：MixGraph v2 + 效果包 + 打母带 | ✅ | 出口永远是一首立体声 Work；打开 B 续 A 的会话；打成后码头按 B 的 QC/发行状态接电台或发行；电脑波形精编 / 选 take / 时间线内再生成；手机简易控制台；出歌完成页 3 个需求芯片 + 3 秒预听；套包不踩剪辑；官方包可预烘焙预听；上架禁止外部 IR；创作页商店只进配方货架；轻编变速变调映射进美化台；Work B 回写 pack_id；通知/助手/轻编回台；发行 / 本周掉落 / 电台试投优先 Work B；曲库标明原曲；个人中心任务回台；edit_lanes ≠ review_stems ≠ DistroKid 多轨 |
+| 电台试投 → 发行 | ✅ | 揭晓默认下一步是试投 |
+| Sync Desk + 租户隔离 | ◐ | listing 带非独家权利证；多租户开启时按 `tenant_id` 过滤 |
+| 嵌入播放器结算 | ◐ | 跨租户拒绝 |
+
+### 1.10 客户端（Taro-only）
 
 | 端 | 完成度 | 目标 |
 |----|--------|------|
-| H5 Web（`apps/client` build:h5） | ~85% | 补主页/收藏/预设/嵌入 |
+| H5 Web（`apps/client` build:h5） | ~90% | 用户页/Follow 已有；创作者 OS 看钱/发店，不补第五 Tab |
 | 微信小程序（`apps/client` build:weapp） | ~80% | 与 H5 功能对齐、包体积优化 |
 | 共享 SDK | `packages/api-client` | OpenAPI sync + 双端一致 |
 
@@ -297,7 +344,7 @@ POST /works/generate/variations
 }
 ```
 
-Orchestrator step 0 分析参考轨；step i 目标 AV = reference_AV + offset × curve(i/steps)。
+Orchestrator step 0 仅在权利检查通过后分析参考轨（作者本人，或可查看且已开放 Remix）；无权利则不继承 AV/moods、不写 embedding。step i 目标 AV = reference_AV + offset × curve(i/steps)。不做「像某首热歌」克隆。
 
 ---
 
@@ -647,7 +694,7 @@ visibility: str = "private"
 | # | 交付物 | 验收 |
 |---|--------|------|
 | 7.1 | C2PA 二进制嵌入 | verify 通过嵌入 manifest |
-| 7.2 | Admin moderation | 封禁用户后无法登录 |
+| 7.2 | Admin moderation | ✅ 封禁用户后无法登录 |
 | 7.3 | post-process badges | Works 显示 HLS/Cover 状态 |
 | 7.4 | Mobile Phase A | Expo feed+follow+preset playlist |
 

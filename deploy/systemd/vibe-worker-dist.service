@@ -1,0 +1,14 @@
+[Unit]
+Description=Vibe Sorcery Distribution Worker
+After=network.target redis.service postgresql.service
+
+[Service]
+Type=simple
+User=vibe
+WorkingDirectory=/opt/vibe-sorcery/backend
+ExecStart=/opt/vibe-sorcery/.venv/bin/celery -A app.celery_app worker -Q distribution,settlement -n worker-dist@%%h --concurrency=2 --loglevel=info
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

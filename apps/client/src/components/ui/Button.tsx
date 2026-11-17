@@ -21,24 +21,40 @@ export function Button({
   children,
   loading,
   disabled,
+  onClick,
   ...rest
 }: Props) {
   const busy = !!loading;
+  const locked = !!disabled || busy;
+  const cls = clsx(
+    "ui-btn",
+    `ui-btn--${variant}`,
+    size === "sm" && "ui-btn--sm",
+    block && "ui-btn--block",
+    busy && "ui-btn--busy",
+    locked && "ui-btn--disabled",
+    className
+  );
+
+  // WeChat in-app browser often swallows taps on <button> / taro-button-core.
+  if (isH5) {
+    return (
+      <View
+        className={cls}
+        hoverClass="none"
+        onClick={(event) => {
+          if (locked) return;
+          onClick?.(event);
+        }}
+      >
+        {busy ? <View className="ui-btn__spinner" aria-hidden /> : null}
+        {children}
+      </View>
+    );
+  }
 
   return (
-    <TaroButton
-      className={clsx(
-        "ui-btn",
-        `ui-btn--${variant}`,
-        size === "sm" && "ui-btn--sm",
-        block && "ui-btn--block",
-        busy && "ui-btn--busy",
-        className
-      )}
-      disabled={disabled || (isH5 && busy)}
-      {...(isH5 ? rest : { ...rest, loading })}
-    >
-      {isH5 && busy ? <View className="ui-btn__spinner" aria-hidden /> : null}
+    <TaroButton className={cls} disabled={locked} loading={busy} onClick={onClick} {...rest}>
       {children}
     </TaroButton>
   );

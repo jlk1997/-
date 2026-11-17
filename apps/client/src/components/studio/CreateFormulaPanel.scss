@@ -1,3 +1,5 @@
+@import "../../styles/_utilities.scss";
+
 .create-formula {
   position: relative;
   width: 100%;
@@ -6,24 +8,14 @@
   margin-bottom: $space-lg;
   padding: $space-md;
   border-radius: $radius-lg;
-  background: linear-gradient(165deg, rgba(22, 22, 34, 0.96) 0%, rgba(10, 10, 16, 0.98) 100%);
-  border: 1rpx solid rgba(212, 175, 106, 0.22);
-  box-shadow:
-    $shadow-md,
-    inset 0 1rpx 0 rgba(212, 175, 106, 0.1),
-    0 0 56rpx rgba(212, 175, 106, 0.05);
+  background: $obsidian;
+  border: 1rpx solid $border;
+  box-shadow: $shadow-sm;
   overflow: hidden;
 }
 
 .create-formula__glow {
-  position: absolute;
-  top: -80rpx;
-  left: -40rpx;
-  width: 280rpx;
-  height: 280rpx;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(212, 175, 106, 0.14) 0%, transparent 68%);
-  pointer-events: none;
+  display: none;
 }
 
 .create-formula__head {
@@ -36,32 +28,30 @@
   margin-bottom: $space-sm;
 }
 
-.create-formula__head-left {
+.create-formula__head-actions {
   display: flex;
   align-items: center;
   gap: $space-xs;
-  min-width: 0;
+  flex-shrink: 0;
 }
 
-.create-formula__sigil {
+.create-formula__draft {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: var(--text-meta);
+  padding: 8rpx 12rpx;
+}
+
+.create-formula__head-left {
   display: flex;
   align-items: center;
-  justify-content: center;
-  width: 48rpx;
-  height: 48rpx;
-  border-radius: $radius-md;
-  background: rgba(212, 175, 106, 0.12);
-  border: 1rpx solid rgba(212, 175, 106, 0.28);
-  flex-shrink: 0;
+  min-width: 0;
 }
 
 .create-formula__title {
   font-size: var(--text-meta);
   font-weight: $font-weight-semibold;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: rgba(212, 175, 106, 0.92);
-  font-family: var(--font-display);
+  color: $text;
+  font-family: var(--font-ui);
 }
 
 .create-formula__polish {
@@ -70,14 +60,14 @@
   gap: 6rpx;
   padding: 10rpx 18rpx;
   border-radius: $radius-full;
-  background: linear-gradient(135deg, rgba(212, 175, 106, 0.18) 0%, rgba(147, 130, 180, 0.12) 100%);
-  border: 1rpx solid rgba(212, 175, 106, 0.35);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1rpx solid rgba(255, 255, 255, 0.12);
   flex-shrink: 0;
   transition: background $duration-fast $ease-out, transform $duration-fast $ease-out;
 
   &:active {
     transform: scale(0.97);
-    background: rgba(212, 175, 106, 0.24);
+    background: rgba(255, 255, 255, 0.1);
   }
 
   &--loading {
@@ -88,7 +78,7 @@
 
 .create-formula__polish-text {
   font-size: var(--text-micro);
-  color: $gold;
+  color: rgba(255, 255, 255, 0.88);
   font-family: var(--font-ui);
   white-space: nowrap;
 }
@@ -101,8 +91,7 @@
   box-sizing: border-box;
   padding: $space-sm $space-md;
   border-radius: $radius-md;
-  background: rgba(0, 0, 0, 0.28);
-  border: 1rpx solid rgba(212, 175, 106, 0.14);
+  background: rgba(0, 0, 0, 0.22);
 
   taro-textarea-core {
     width: 100% !important;
@@ -114,30 +103,6 @@
     overflow: visible !important;
   }
 
-  &::before,
-  &::after {
-    content: "";
-    position: absolute;
-    width: 24rpx;
-    height: 24rpx;
-    border-color: rgba(212, 175, 106, 0.4);
-    border-style: solid;
-    pointer-events: none;
-  }
-
-  &::before {
-    top: $space-xs;
-    left: $space-xs;
-    border-width: 2rpx 0 0 2rpx;
-    border-radius: 4rpx 0 0 0;
-  }
-
-  &::after {
-    bottom: $space-xs;
-    right: $space-xs;
-    border-width: 0 2rpx 2rpx 0;
-    border-radius: 0 0 4rpx 0;
-  }
 }
 
 .create-formula__input-wrap {
@@ -169,7 +134,7 @@
   border: none !important;
   outline: none !important;
   box-sizing: border-box;
-  caret-color: $gold;
+  caret-color: #fff;
   padding: 0;
   margin: 0;
 
@@ -199,12 +164,63 @@
 
 .create-formula__prompt-foot {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  align-items: center;
+  justify-content: flex-end;
   gap: $space-sm;
   margin-top: $space-xs;
-  padding-top: $space-xs;
-  border-top: 1rpx solid rgba(255, 255, 255, 0.05);
+}
+
+.create-formula__foot-spacer {
+  flex: 1;
+}
+
+.create-formula__adjust {
+  display: inline-flex;
+  align-items: center;
+  gap: 8rpx;
+  margin-right: auto;
+  padding: 10rpx 18rpx 10rpx 20rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1rpx solid rgba(255, 255, 255, 0.34);
+  color: #fff;
+}
+
+.create-formula__adjust-text {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: 0.02em;
+}
+
+.create-formula__choices {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12rpx;
+  margin-top: $space-sm;
+}
+
+.create-formula__choices-label {
+  font-size: 24rpx;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.create-formula__choice-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  flex: 1;
+  min-width: 0;
+}
+
+.create-formula__choice {
+  padding: 8rpx 16rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 24rpx;
+  line-height: 1.4;
 }
 
 .create-formula__hint {
@@ -221,7 +237,7 @@
 
 .create-formula__count {
   font-size: var(--text-micro);
-  color: rgba(212, 175, 106, 0.55);
+  color: rgba(255, 255, 255, 0.45);
   font-family: var(--font-mono);
   flex-shrink: 0;
 }
@@ -233,8 +249,8 @@
   margin-top: $space-md;
   padding: $space-sm;
   border-radius: $radius-md;
-  background: rgba(212, 175, 106, 0.08);
-  border: 1rpx solid rgba(212, 175, 106, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1rpx solid rgba(255, 255, 255, 0.1);
 }
 
 .create-formula__tip-text {

@@ -33,7 +33,7 @@ export { StickySummary } from "./StickySummary";
 export { PageHeader } from "./PageHeader";
 export { ListRow } from "./ListRow";
 export { PostProcessBadges } from "./PostProcessBadges";
-export { showToast, showSuccess, showError } from "./toast";
+export { showToast, showSuccess, showError, toastFromError, messageFromError } from "./toast";
 export { SectionLabel } from "./SectionLabel";
 export { MoodSpectrum } from "./MoodSpectrum";
 export { MoodShiftViz } from "./MoodShiftViz";

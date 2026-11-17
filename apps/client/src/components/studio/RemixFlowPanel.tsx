@@ -19,6 +19,7 @@ type Props = {
   polishingLabel?: string;
   polishing?: boolean;
   onPolish?: () => void;
+  authNext?: string;
 };
 
 type SourceMeta = {
@@ -37,6 +38,7 @@ export function RemixFlowPanel({
   polishingLabel,
   polishing = false,
   onPolish,
+  authNext = "/pages/create/index",
 }: Props) {
   const { copy } = useLocale();
   const r = copy.createUi.remixFlow;
@@ -94,7 +96,7 @@ export function RemixFlowPanel({
 
   async function runPreview() {
     if (!sourceWorkId || !intent.trim() || !meta?.remixAllowed) return;
-    if (!requireAuth()) return;
+    if (!requireAuth(authNext)) return;
     setPreviewLoading(true);
     try {
       setPreview(await vibeApi.previewRemix(sourceWorkId, intent.trim()));
@@ -140,7 +142,7 @@ export function RemixFlowPanel({
         {!sourceWorkId ? (
           <>
             <Text className="remix-flow__empty">{loadingMeta ? r.loadingSource : r.emptySource}</Text>
-            <WorkPicker value={sourceWorkId} onChange={onSourceChange} label={r.pickSource} />
+            <WorkPicker value={sourceWorkId} onChange={onSourceChange} label={r.pickSource} authNext={authNext} />
           </>
         ) : (
           <>
@@ -148,7 +150,7 @@ export function RemixFlowPanel({
               <View className="remix-flow__source-card">
                 <View className="remix-flow__source-main">
                   {meta.coverUrl ? (
-                    <Image className="remix-flow__cover" src={meta.coverUrl} mode="aspectFill" />
+                    <Image className="remix-flow__cover" src={meta.coverUrl} mode="aspectFill" lazyLoad />
                   ) : (
                     <View className="remix-flow__cover remix-flow__cover--placeholder">
                       <Icon name="music" size="sm" accent />
@@ -175,7 +177,7 @@ export function RemixFlowPanel({
             ) : (
               <Text className="remix-flow__empty">{loadingMeta ? r.loadingSource : r.emptySource}</Text>
             )}
-            <WorkPicker value={sourceWorkId} onChange={onSourceChange} label={r.changeSource} />
+            <WorkPicker value={sourceWorkId} onChange={onSourceChange} label={r.changeSource} authNext={authNext} />
           </>
         )}
       </View>

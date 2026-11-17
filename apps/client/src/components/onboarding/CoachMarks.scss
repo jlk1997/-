@@ -3,50 +3,52 @@
 .coach-marks {
   position: fixed;
   inset: 0;
-  z-index: 200;
+  z-index: 400;
+  overflow: hidden;
   pointer-events: none;
 
-  &--create {
-    .coach-marks__panel {
-      bottom: calc(
-        var(--create-dock-reserve, 300rpx) + var(--tab-bar-stack, 0rpx) + var(--mini-player-height, 0rpx) +
-          #{$space-md} + env(safe-area-inset-bottom, 0px)
-      );
-    }
-  }
-
-  &--default {
-    .coach-marks__panel {
-      bottom: calc(
-        120rpx + var(--tab-bar-stack, 0rpx) + var(--mini-player-height, 0rpx) + #{$space-sm} +
-          env(safe-area-inset-bottom, 0px)
-      );
-    }
-  }
-
-  &__backdrop {
+  &__catch,
+  &__veil {
     position: absolute;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.62);
+    background: rgba(18, 16, 24, 0.26);
     pointer-events: auto;
+    z-index: 0;
+  }
+
+  &__catch {
+    inset: 0;
+  }
+
+  &__spot {
+    position: absolute;
+    border: 3rpx solid $gold;
+    border-radius: $radius-lg;
+    background: rgba(255, 236, 196, 0.14);
+    box-shadow:
+      0 0 0 4rpx rgba(212, 175, 106, 0.34),
+      0 0 28rpx rgba(212, 175, 106, 0.42);
+    pointer-events: none;
+    z-index: 1;
   }
 
   &__panel {
     position: absolute;
     left: $space-sm;
     right: $space-sm;
+    top: 24%;
     pointer-events: auto;
     max-width: 680rpx;
     margin: 0 auto;
+    z-index: 2;
   }
 
   &__card {
     position: relative;
     padding: $space-md $space-sm $space-sm;
-    background: linear-gradient(165deg, rgba(22, 22, 34, 0.98) 0%, rgba(10, 10, 18, 0.99) 100%);
-    border: 1rpx solid rgba(212, 175, 106, 0.38);
+    background: linear-gradient(165deg, rgba(56, 50, 66, 0.98) 0%, rgba(34, 30, 42, 0.98) 100%);
+    border: 2rpx solid rgba(212, 175, 106, 0.58);
     border-radius: $radius-lg;
-    box-shadow: $shadow-glass, 0 16rpx 48rpx rgba(0, 0, 0, 0.45);
+    box-shadow: 0 12rpx 36rpx rgba(0, 0, 0, 0.28), 0 0 0 1rpx rgba(255, 255, 255, 0.08);
     overflow: hidden;
 
     &::before {
@@ -55,7 +57,7 @@
       top: 0;
       left: 0;
       right: 0;
-      height: 4rpx;
+      height: 6rpx;
       background: linear-gradient(90deg, transparent, $gold, transparent);
     }
   }
@@ -65,8 +67,8 @@
     align-items: center;
     padding: 6rpx 16rpx;
     border-radius: $radius-pill;
-    background: rgba(212, 175, 106, 0.14);
-    border: 1rpx solid rgba(212, 175, 106, 0.28);
+    background: rgba(212, 175, 106, 0.22);
+    border: 1rpx solid rgba(212, 175, 106, 0.42);
   }
 
   &__step {
@@ -80,15 +82,15 @@
     font-family: var(--font-display);
     margin-top: $space-sm;
     display: block;
-    color: $text;
+    color: #fff;
   }
 
   &__desc {
     @extend .typo-meta;
     margin-top: $space-xs;
     display: block;
-    line-height: 1.6;
-    color: rgba(255, 255, 255, 0.78);
+    line-height: 1.55;
+    color: rgba(255, 255, 255, 0.94);
   }
 
   &__actions {
@@ -98,32 +100,45 @@
     gap: $space-sm;
     margin-top: $space-md;
     padding-top: $space-sm;
-    border-top: 1rpx solid rgba(255, 255, 255, 0.06);
+    border-top: 1rpx solid rgba(255, 255, 255, 0.12);
     flex-wrap: wrap;
+    position: relative;
+    z-index: 3;
+  }
+
+  &__never,
+  &__skip,
+  &__next {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 72rpx;
+    min-width: 96rpx;
+    padding: 12rpx 20rpx;
+    box-sizing: border-box;
   }
 
   &__never {
-    color: $muted;
+    color: rgba(255, 255, 255, 0.66);
     font-size: var(--text-meta);
     font-family: var(--font-ui);
     margin-right: auto;
+    padding-left: 0;
   }
 
   &__skip {
-    color: $muted;
+    color: rgba(255, 255, 255, 0.78);
     font-size: var(--text-meta);
     font-family: var(--font-ui);
-    padding: 8rpx 12rpx;
   }
 
   &__next {
-    color: #0e0e16;
-    background: linear-gradient(135deg, $gold 0%, $gold-muted 100%);
+    color: #1a140c;
+    background: $gold;
     font-size: var(--text-meta);
     font-weight: $font-weight-semibold;
     font-family: var(--font-display);
-    padding: 12rpx 28rpx;
+    padding: 16rpx 32rpx;
     border-radius: $radius-pill;
-    box-shadow: 0 4rpx 16rpx rgba(212, 175, 106, 0.35);
   }
 }

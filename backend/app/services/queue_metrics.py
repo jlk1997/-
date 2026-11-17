@@ -56,11 +56,11 @@ def celery_queue_depths() -> dict[str, int]:
     if cached and now - cached[0] < _CACHE_TTL:
         return cached[1]
 
-    depths = {"celery": 0, "priority": 0}
+    depths = {"celery": 0, "priority": 0, "distribution": 0, "analytics": 0, "settlement": 0, "post_process": 0, "stems": 0}
     r = _get_broker_redis()
     if r is not None:
         try:
-            for name in ("celery", "priority"):
+            for name in ("celery", "priority", "distribution", "analytics", "settlement", "post_process", "stems"):
                 depths[name] = int(r.llen(name) or 0)
         except Exception as exc:
             logger.debug("Celery queue depth read failed: %s", exc)
@@ -105,13 +105,15 @@ def generation_capacity_snapshot() -> dict:
     depths = celery_queue_depths()
     workers = active_worker_count()
     avg = average_compose_seconds()
-    total_depth = depths.get("celery", 0) + depths.get("priority", 0)
+    gen_depth = depths.get("celery", 0) + depths.get("priority", 0)
+    pp_depth = depths.get("post_process", 0)
     return {
         "active_workers": workers,
         "generation_slots": workers,
         "celery_depth": depths.get("celery", 0),
         "priority_depth": depths.get("priority", 0),
-        "total_broker_depth": total_depth,
+        "post_process_depth": pp_depth,
+        "total_broker_depth": gen_depth + pp_depth,
         "avg_compose_seconds": avg,
         "estimated_throughput_per_hour": max(1, int((3600 / max(avg, 30)) * workers)),
     }
@@ -130,21 +132,33 @@ def record_compose_duration(seconds: float) -> None:
         pass
 
 
-def average_compose_seconds() -> int:
+def _compose_samples() -> list[float]:
     r = _get_redis()
-    default = settings.default_compose_eta_seconds
     if r is None:
-        return default
+        return []
     try:
         raw = r.lrange(_COMPOSE_STATS_KEY, 0, settings.compose_stats_window - 1)
-        if not raw:
-            return default
-        values = [float(x) for x in raw if x]
-        if not values:
-            return default
-        return max(30, int(sum(values) / len(values)))
+        return [float(item) for item in raw if item]
     except Exception:
+        return []
+
+
+def p50_compose_seconds() -> int:
+    """Queue ETA uses the measured median, so one slow song does not stretch every estimate."""
+    default = settings.default_compose_eta_seconds
+    values = _compose_samples()
+    if not values:
         return default
+    ordered = sorted(values)
+    return max(30, int(ordered[len(ordered) // 2]))
+
+
+def average_compose_seconds() -> int:
+    default = settings.default_compose_eta_seconds
+    values = _compose_samples()
+    if not values:
+        return default
+    return max(30, int(sum(values) / len(values)))
 
 
 def count_queue_ahead(db: Session, job: GenerationJob) -> int:
@@ -171,7 +185,7 @@ def estimate_wait_seconds(queue_ahead: int, queue_name: str) -> int:
     depths = celery_queue_depths()
     depth = depths.get(queue_name, 0)
     workers = max(active_worker_count(), 1)
-    avg = average_compose_seconds()
+    avg = p50_compose_seconds()
     slots = queue_ahead + depth
     return max(0, int((slots / workers) * avg))
 
@@ -180,13 +194,13 @@ def compute_compose_eta_seconds(job: GenerationJob) -> int | None:
     cfg = job.config or {}
     started_raw = cfg.get("compose_started_at")
     if not started_raw:
-        return average_compose_seconds()
+        return p50_compose_seconds()
     try:
         started = datetime.fromisoformat(str(started_raw))
         elapsed = (datetime.utcnow() - started).total_seconds()
-        return max(0, int(average_compose_seconds() - elapsed))
+        return max(0, int(p50_compose_seconds() - elapsed))
     except ValueError:
-        return average_compose_seconds()
+        return p50_compose_seconds()
 
 
 def queue_metrics_for_job(db: Session, job: GenerationJob) -> dict:
@@ -209,7 +223,7 @@ def queue_metrics_for_job(db: Session, job: GenerationJob) -> dict:
 
 def total_queue_depth() -> int:
     depths = celery_queue_depths()
-    return depths.get("celery", 0) + depths.get("priority", 0)
+    return depths.get("celery", 0) + depths.get("priority", 0) + depths.get("post_process", 0)
 
 
 def check_queue_capacity() -> tuple[bool, int]:

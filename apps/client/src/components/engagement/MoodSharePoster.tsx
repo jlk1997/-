@@ -1,18 +1,21 @@
 import { View, Text, Canvas } from "@tarojs/components";
 import Taro from "@tarojs/taro";
 import { useLocale } from "@vibe-sorcery/i18n";
-import { MoodShiftViz, Button } from "../ui";
+import { MoodShiftViz, Button, ShareButton } from "../ui";
 import { renderMoodPosterDataUrl, saveMoodPosterH5 } from "../../utils/moodPosterCanvas";
 import { saveMoodPosterWeapp } from "../../utils/moodPosterWeapp";
+import { shareWork } from "../../platform/share";
 import "./MoodSharePoster.scss";
 
 type Props = {
   title: string;
   before: number;
   after: number;
+  inviteLine?: string;
+  workId?: string;
 };
 
-export function MoodSharePoster({ title, before, after }: Props) {
+export function MoodSharePoster({ title, before, after, inviteLine, workId }: Props) {
   const { copy } = useLocale();
   const f = copy.feedbackUi;
   const b = copy.brand;
@@ -65,7 +68,8 @@ export function MoodSharePoster({ title, before, after }: Props) {
         afterTitle={f.afterSection}
       />
       <Text className="mood-poster__tagline">{f.posterTagline}</Text>
-      <Text className="mood-poster__watermark">{b.fullName} · AI 音乐</Text>
+      {inviteLine ? <Text className="mood-poster__tagline">{inviteLine}</Text> : null}
+      <Text className="mood-poster__watermark">{f.posterWatermark.replace("{name}", b.fullName)}</Text>
       {isWeapp && (
         <Canvas type="2d" id="mood-poster-canvas" className="mood-poster__canvas" />
       )}
@@ -74,6 +78,15 @@ export function MoodSharePoster({ title, before, after }: Props) {
           {f.savePoster}
         </Button>
       )}
+      {workId ? (
+        <ShareButton
+          className="mood-poster__share"
+          dataset={{ workid: workId, title }}
+          onShare={() => shareWork(workId, title)}
+        >
+          {f.share}
+        </ShareButton>
+      ) : null}
     </View>
   );
 }

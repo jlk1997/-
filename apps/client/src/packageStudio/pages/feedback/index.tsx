@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { View } from "@tarojs/components";
 import Taro, { useRouter, useShareAppMessage } from "@tarojs/taro";
-import { STACK_PAGE_ROUTES } from "../../../constants/routes";
+import { STACK_PAGE_ROUTES, studioPage } from "../../../constants/routes";
 import { useLocale } from "@vibe-sorcery/i18n";
 import { PageShell } from "../../../components/PageShell";
 import { Button, Card, MoodShiftViz, MoodSpectrum, StatusLine, TextArea, CelebrationSheet } from "../../../components/ui";
@@ -39,7 +39,7 @@ export default function FeedbackPage() {
 
   async function submit() {
     bootstrapAuth();
-    if (!requireAuth() || !playlistId) return;
+    if (!requireAuth(studioPage("feedback", { playlistId: playlistId || undefined })) || !playlistId) return;
     setSubmitting(true);
     try {
       const res = await vibeApi.submitPlaylistFeedback(playlistId, {

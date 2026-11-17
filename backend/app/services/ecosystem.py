@@ -149,20 +149,57 @@ def _member_export_count_this_month(db: Session, user_id: uuid.UUID, export_type
     )
 
 
-def _quota_item(db: Session, user_id: uuid.UUID, export_type: str, monthly_limit: int, *, is_member: bool) -> dict[str, int]:
+def _quota_item(
+    db: Session,
+    user_id: uuid.UUID,
+    export_type: str,
+    monthly_limit: int,
+    *,
+    is_member: bool,
+    available: bool,
+) -> dict[str, Any]:
     used = _member_export_count_this_month(db, user_id, export_type)
     limit = monthly_limit if is_member else 0
-    return {"used": used, "limit": limit, "remaining": max(0, limit - used)}
+    return {
+        "used": used,
+        "limit": limit,
+        "remaining": max(0, limit - used),
+        "available": available,
+    }
+
+
+def export_capabilities() -> dict[str, bool]:
+    """A quota row must not advertise an export this deploy cannot actually render."""
+    from app.config import settings
+    from app.services.mood_visual_export import ffmpeg_available
+
+    ffmpeg = ffmpeg_available()
+    return {
+        "stems": ffmpeg,
+        "hq_wav": ffmpeg,
+        "mv_video": ffmpeg,
+        "ai_cover": not settings.use_mock_ai,
+    }
 
 
 def get_member_export_quotas(db: Session, user: User) -> dict[str, Any]:
     is_member = is_active_subscriber(db, user.id)
+    caps = export_capabilities()
     return {
         "is_member": is_member,
-        "stems": _quota_item(db, user.id, "stems", MEMBER_FREE_STEMS_PER_MONTH, is_member=is_member),
-        "hq_wav": _quota_item(db, user.id, "hq_wav", MEMBER_FREE_WAV_PER_MONTH, is_member=is_member),
-        "ai_cover": _quota_item(db, user.id, "ai_cover", MEMBER_FREE_COVERS_PER_MONTH, is_member=is_member),
-        "mv_video": _quota_item(db, user.id, "mv_video", MEMBER_FREE_MV_PER_MONTH, is_member=is_member),
+        "capabilities": caps,
+        "stems": _quota_item(
+            db, user.id, "stems", MEMBER_FREE_STEMS_PER_MONTH, is_member=is_member, available=caps["stems"]
+        ),
+        "hq_wav": _quota_item(
+            db, user.id, "hq_wav", MEMBER_FREE_WAV_PER_MONTH, is_member=is_member, available=caps["hq_wav"]
+        ),
+        "ai_cover": _quota_item(
+            db, user.id, "ai_cover", MEMBER_FREE_COVERS_PER_MONTH, is_member=is_member, available=caps["ai_cover"]
+        ),
+        "mv_video": _quota_item(
+            db, user.id, "mv_video", MEMBER_FREE_MV_PER_MONTH, is_member=is_member, available=caps["mv_video"]
+        ),
     }
 
 
@@ -211,6 +248,48 @@ def list_cn_recurring_waitlist(db: Session, *, limit: int = 100) -> list[dict[st
     ]
 
 
+def _stem_pack_or_raise(work: Work) -> tuple[bytes, dict]:
+    """Build a real zip. Never charge for a master MP3 disguised as stems."""
+    from app.services.media import build_stem_pack
+    from app.services.stem_assets import isolation_is_sellable
+    from app.services.storage import get_storage_service
+
+    source = b""
+    if work.storage_key:
+        try:
+            source = get_storage_service().get_object_bytes(work.storage_key)
+        except Exception:
+            source = b""
+    if not source:
+        raise HTTPException(status_code=400, detail="Stem export needs the master file")
+    pack, manifest = build_stem_pack(
+        source,
+        title=work.title or "track",
+        duration=getattr(work, "duration", None),
+        work=work,
+    )
+    if not pack or not isolation_is_sellable(manifest.get("isolation")):
+        raise HTTPException(status_code=400, detail="Stem pack not ready")
+    return pack, manifest
+
+
+def _wav_or_raise(work: Work) -> tuple[bytes, dict]:
+    """Build a real WAV. Never charge for a preview MP3 named .wav."""
+    from app.services.media import transcode_audio
+    from app.services.storage import get_storage_service
+
+    if not work.storage_key:
+        raise HTTPException(status_code=400, detail="WAV export needs the master file")
+    try:
+        source = get_storage_service().get_object_bytes(work.storage_key)
+        wav = transcode_audio(source, fmt="wav") if source else None
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="WAV export unavailable") from exc
+    if not wav:
+        raise HTTPException(status_code=400, detail="WAV master not ready")
+    return wav, {"format": "wav"}
+
+
 def export_work(
     db: Session,
     user: User,
@@ -229,12 +308,6 @@ def export_work(
     if not work:
         raise HTTPException(status_code=404, detail="Work not found")
 
-    if export_type in ("hq_wav", "stems"):
-        raise HTTPException(
-            status_code=501,
-            detail="WAV/stems export is coming soon — transcoding pipeline not yet available",
-        )
-
     cost = EXPORT_COSTS[export_type]
     is_member = is_active_subscriber(db, user.id)
     if export_type == "hq_mp3" and is_member:
@@ -244,12 +317,48 @@ def export_work(
             cost = 0
         if export_type == "hq_wav" and _member_export_count_this_month(db, user.id, "hq_wav") < MEMBER_FREE_WAV_PER_MONTH:
             cost = 0
+    stem_pack: bytes | None = None
+    wav_bytes: bytes | None = None
+    extra_meta: dict = {}
+    if export_type == "stems":
+        stem_pack, extra_meta = _stem_pack_or_raise(work)
+    if export_type == "hq_wav":
+        wav_bytes, extra_meta = _wav_or_raise(work)
+
     if cost > 0 and not deduct_credits(db, user.id, cost, source=f"export_{export_type}"):
         raise HTTPException(status_code=402, detail="Insufficient credits for export")
 
     license_id = None
     if export_type == "commercial_license":
         license_id = f"VSK-COM-{secrets.token_hex(8).upper()}"
+
+    download_url = None
+    if export_type == "stems" and stem_pack:
+        from app.services.storage import get_storage_service
+
+        try:
+            key, url = get_storage_service().upload_bytes(
+                stem_pack, f"exports/{user.id}/{work.id}-stems.zip", "application/zip"
+            )
+            extra_meta = {"storage_key": key, "format": "zip", **extra_meta}
+            download_url = url
+        except Exception as exc:
+            if cost > 0:
+                grant_credits_with_transaction(db, user.id, cost, source="export_stems_refund")
+            raise HTTPException(status_code=500, detail="Stem upload failed") from exc
+    if export_type == "hq_wav" and wav_bytes:
+        from app.services.storage import get_storage_service
+
+        try:
+            key, url = get_storage_service().upload_bytes(
+                wav_bytes, f"exports/{user.id}/{work.id}.wav", "audio/wav"
+            )
+            extra_meta = {"storage_key": key, "format": "wav"}
+            download_url = url
+        except Exception as exc:
+            if cost > 0:
+                grant_credits_with_transaction(db, user.id, cost, source="export_wav_refund")
+            raise HTTPException(status_code=500, detail="WAV upload failed") from exc
 
     row = WorkExport(
         work_id=work.id,
@@ -262,7 +371,8 @@ def export_work(
             "title": work.title,
             "format": "wav" if export_type == "hq_wav" else "mp3",
             "bitrate": "320k" if export_type in ("hq_mp3", "hq_wav") else "128k",
-            "stems": ["vocals", "drums", "bass", "other"] if export_type == "stems" else None,
+            "stems": extra_meta.get("stems") if export_type == "stems" else None,
+            **extra_meta,
         },
     )
     db.add(row)
@@ -270,11 +380,20 @@ def export_work(
     db.refresh(row)
     from app.services.media_playback import protected_stream_url
 
+    if export_type == "stems" and not download_url:
+        if cost > 0:
+            grant_credits_with_transaction(db, user.id, cost, source="export_stems_refund")
+        raise HTTPException(status_code=400, detail="Stem pack not ready")
+    if export_type == "hq_wav" and not download_url:
+        if cost > 0:
+            grant_credits_with_transaction(db, user.id, cost, source="export_wav_refund")
+        raise HTTPException(status_code=400, detail="WAV master not ready")
+
     return {
         "id": str(row.id),
         "export_type": export_type,
         "license_id": license_id,
-        "download_url": protected_stream_url(work, user),
+        "download_url": download_url or protected_stream_url(work, user),
         "meta": row.meta,
     }
 
@@ -419,24 +538,236 @@ def _ticket_dict(row: SupportTicket) -> dict[str, Any]:
     }
 
 
-def list_recipe_templates(db: Session, *, limit: int = 50) -> list[dict[str, Any]]:
-    rows = (
+SEED_RECIPES = [
+    {
+        "seed": "night-lit",
+        "title": "夜店 lit",
+        "description": "电子合成器、快板、激昂。适合短视频高潮。",
+        "spec": {
+            "instruments": ["synth"],
+            "genres": ["electronic"],
+            "moods": ["energetic"],
+            "tempo_feel": "fast",
+            "texture": "band",
+            "key": "auto",
+            "meter": "44",
+            "era": "modern",
+            "text_intent": "夜店 lit，合成器驱动的高潮",
+            "style_tags": "electronic energetic club",
+        },
+    },
+    {
+        "seed": "late-lofi",
+        "title": "深夜 lofi",
+        "description": "钢琴与合成器、慢板、平静。适合夜间电台。",
+        "spec": {
+            "instruments": ["piano", "synth"],
+            "genres": ["lofi"],
+            "moods": ["calm", "nostalgic"],
+            "tempo_feel": "slow",
+            "texture": "solo",
+            "key": "auto",
+            "meter": "44",
+            "era": "modern",
+            "text_intent": "深夜 lofi，柔和磁带底噪",
+            "style_tags": "lofi calm night",
+        },
+    },
+    {
+        "seed": "cinematic-strings",
+        "title": "电影感弦乐",
+        "description": "弦乐铺底、中速、希望。适合预告与广告。",
+        "spec": {
+            "instruments": ["strings", "piano"],
+            "genres": ["cinematic"],
+            "moods": ["hopeful"],
+            "tempo_feel": "medium",
+            "texture": "orchestral",
+            "key": "auto",
+            "meter": "44",
+            "era": "modern",
+            "text_intent": "电影感弦乐，由暗到明",
+            "style_tags": "cinematic hopeful strings",
+        },
+    },
+    {
+        "seed": "folk-guitar",
+        "title": "民谣吉他",
+        "description": "原声吉他、中速、怀旧。适合做同款翻唱。",
+        "spec": {
+            "instruments": ["guitar"],
+            "genres": ["folk"],
+            "moods": ["nostalgic"],
+            "tempo_feel": "medium",
+            "texture": "solo",
+            "key": "auto",
+            "meter": "44",
+            "era": "modern",
+            "text_intent": "一把吉他把故事唱完",
+            "style_tags": "folk acoustic nostalgic",
+        },
+    },
+]
+
+CATALOG_STEWARD_EMAIL = "catalog@bittune.local"
+CATALOG_STEWARD_USERNAME = "bittune.catalog"
+
+
+def ensure_catalog_owner(db: Session) -> User:
+    steward = (
+        db.query(User).filter(User.email == CATALOG_STEWARD_EMAIL).first()
+        or db.query(User).filter(User.username == CATALOG_STEWARD_USERNAME).first()
+    )
+    if steward:
+        return steward
+    from app.services.auth import hash_password
+
+    steward = User(
+        email=CATALOG_STEWARD_EMAIL,
+        username=CATALOG_STEWARD_USERNAME,
+        hashed_password=hash_password(secrets.token_urlsafe(32)),
+        display_name="比特音配方",
+        is_active=True,
+        is_admin=False,
+    )
+    db.add(steward)
+    db.flush()
+    return steward
+
+
+def seed_recipe_catalog(db: Session) -> int:
+    owner = ensure_catalog_owner(db)
+    existing = {
+        (row.spec or {}).get("seed")
+        for row in db.query(RecipeTemplate).limit(200).all()
+        if isinstance(row.spec, dict)
+    }
+    created = 0
+    for item in SEED_RECIPES:
+        if item["seed"] in existing:
+            continue
+        db.add(
+            RecipeTemplate(
+                owner_id=owner.id,
+                title=item["title"],
+                description=item["description"],
+                spec={**item["spec"], "seed": item["seed"]},
+                price_credits=0,
+                is_public=True,
+            )
+        )
+        created += 1
+    return created
+
+
+def recipe_spec_from_work(db: Session, work: Work) -> dict[str, Any]:
+    from app.models.schemas import ProvenanceRecord
+
+    spec: dict[str, Any] = {
+        "instruments": [],
+        "genres": list(work.genres or [])[:4],
+        "moods": list(work.moods or [])[:4],
+        "tempo_feel": "",
+        "key": "auto",
+        "texture": "",
+        "meter": "",
+        "era": "",
+        "text_intent": work.title or "",
+        "style_tags": " ".join(list(work.moods or [])[:3]),
+        "arousal": work.arousal,
+        "valence": work.valence,
+        "reference_work_id": str(work.id),
+    }
+    prov = db.query(ProvenanceRecord).filter(ProvenanceRecord.work_id == work.id).first()
+    blob = prov.music_request if prov and isinstance(prov.music_request, dict) else {}
+    if blob.get("style_tags"):
+        spec["style_tags"] = str(blob["style_tags"])
+    if blob.get("key"):
+        spec["key"] = str(blob["key"])
+    if blob.get("bpm") is not None:
+        try:
+            spec["bpm"] = int(blob["bpm"])
+        except (TypeError, ValueError):
+            pass
+    if blob.get("text_intent"):
+        spec["text_intent"] = str(blob["text_intent"])
+    return spec
+
+
+def publish_recipe_from_work(
+    db: Session,
+    user: User,
+    work_id: str,
+    *,
+    title: str | None = None,
+    price_credits: int = 0,
+) -> dict[str, Any]:
+    try:
+        wid = uuid.UUID(work_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid work id") from exc
+    work = db.query(Work).filter(Work.id == wid, Work.owner_id == user.id).first()
+    if not work:
+        raise HTTPException(status_code=404, detail="Work not found")
+    if not work.audio_url:
+        raise HTTPException(status_code=400, detail="Work has no audio")
+    spec = recipe_spec_from_work(db, work)
+    for row in (
         db.query(RecipeTemplate)
+        .filter(RecipeTemplate.owner_id == user.id)
+        .order_by(RecipeTemplate.created_at.desc())
+        .limit(40)
+        .all()
+    ):
+        prev = row.spec if isinstance(row.spec, dict) else {}
+        if prev.get("reference_work_id") == str(work.id):
+            row.title = (title or work.title or row.title).strip()
+            row.description = f"从《{work.title}》抽出的听感配方"
+            row.spec = spec
+            row.price_credits = max(0, min(50, price_credits))
+            db.commit()
+            db.refresh(row)
+            return {"id": str(row.id), "title": row.title, "price_credits": row.price_credits, "updated": True}
+    return create_recipe_template(
+        db,
+        user,
+        title=(title or work.title or "未命名配方").strip(),
+        description=f"从《{work.title}》抽出的听感配方",
+        spec=spec,
+        price_credits=price_credits,
+    )
+
+
+def list_recipe_templates(db: Session, *, limit: int = 50) -> list[dict[str, Any]]:
+    if seed_recipe_catalog(db):
+        db.commit()
+    rows = (
+        db.query(RecipeTemplate, User.username, User.display_name)
+        .outerjoin(User, User.id == RecipeTemplate.owner_id)
         .filter(RecipeTemplate.is_public == True)
-        .order_by(RecipeTemplate.purchase_count.desc())
+        .order_by(RecipeTemplate.purchase_count.desc(), RecipeTemplate.created_at.desc())
         .limit(limit)
         .all()
     )
-    return [
-        {
-            "id": str(r.id),
-            "title": r.title,
-            "description": r.description,
-            "price_credits": r.price_credits,
-            "purchase_count": r.purchase_count,
-        }
-        for r in rows
-    ]
+    out = []
+    for r, username, display_name in rows:
+        spec = r.spec if isinstance(r.spec, dict) else {}
+        author = display_name or username
+        if username == CATALOG_STEWARD_USERNAME:
+            author = "比特音"
+        out.append(
+            {
+                "id": str(r.id),
+                "title": r.title,
+                "description": r.description,
+                "price_credits": r.price_credits,
+                "purchase_count": r.purchase_count,
+                "author_username": author,
+                "moods": list(spec.get("moods") or [])[:4],
+                "genres": list(spec.get("genres") or [])[:4],
+            }
+        )
+    return out
 
 
 def create_recipe_template(
@@ -470,8 +801,9 @@ def purchase_recipe_template(db: Session, buyer: User, template_id: str) -> dict
     template = db.query(RecipeTemplate).filter(RecipeTemplate.id == tid, RecipeTemplate.is_public == True).first()
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
+    spec = template.spec if isinstance(template.spec, dict) else {}
     if template.owner_id == buyer.id:
-        return {"spec": template.spec, "owned": True}
+        return {"spec": spec, "owned": True, "reference_work_id": spec.get("reference_work_id")}
 
     existing = (
         db.query(RecipeTemplatePurchase)
@@ -479,7 +811,7 @@ def purchase_recipe_template(db: Session, buyer: User, template_id: str) -> dict
         .first()
     )
     if existing:
-        return {"spec": template.spec, "owned": True}
+        return {"spec": spec, "owned": True, "reference_work_id": spec.get("reference_work_id")}
 
     price = template.price_credits or 0
     if price > 0:
@@ -498,7 +830,13 @@ def purchase_recipe_template(db: Session, buyer: User, template_id: str) -> dict
     )
     template.purchase_count = (template.purchase_count or 0) + 1
     db.commit()
-    return {"spec": template.spec, "purchased": True, "credits_paid": price}
+    spec = template.spec if isinstance(template.spec, dict) else {}
+    return {
+        "spec": spec,
+        "purchased": True,
+        "credits_paid": price,
+        "reference_work_id": spec.get("reference_work_id"),
+    }
 
 
 def create_paid_work_pack(
@@ -603,16 +941,26 @@ def get_creator_wallet(db: Session, user_id: uuid.UUID) -> dict[str, Any]:
         .limit(20)
         .all()
     )
-    royalties = (
+    remix_rows = (
         db.query(CreditTransaction)
         .filter(CreditTransaction.user_id == user_id, CreditTransaction.source == "remix_royalty")
         .order_by(CreditTransaction.created_at.desc())
         .limit(20)
         .all()
     )
+    remix_credits_7d = sum(tx.credits for tx in remix_rows[:7])
+    remix_ledger = [
+        {
+            "credits": tx.credits,
+            "created_at": tx.created_at.isoformat() if tx.created_at else None,
+        }
+        for tx in remix_rows
+        if tx.credits
+    ]
     return {
         "balance_credits": wallet.balance_credits if wallet else 0,
         "lifetime_earned": wallet.lifetime_earned if wallet else 0,
+        "ledger": "credits",
         "recent_tips": [
             {
                 "amount": t.credits,
@@ -621,14 +969,11 @@ def get_creator_wallet(db: Session, user_id: uuid.UUID) -> dict[str, Any]:
             }
             for t in tips
         ],
-        "recent_royalties": [
-            {
-                "credits": tx.credits,
-                "created_at": tx.created_at.isoformat() if tx.created_at else None,
-            }
-            for tx in royalties
-        ],
-        "estimated_weekly_royalty": sum(tx.credits for tx in royalties[:7]),
+        # Remix split is credit fuel, never fiat. Zero stays hidden on the client.
+        "remix_credits_7d": remix_credits_7d,
+        "recent_remix_credits": remix_ledger,
+        "estimated_weekly_royalty": remix_credits_7d,
+        "recent_royalties": remix_ledger,
     }
 
 

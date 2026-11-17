@@ -110,6 +110,12 @@ async def create_vpay_order(
     if plat_norm == "ios" and amount_fen < 100:
         raise HTTPException(status_code=400, detail="iOS 最低支付金额为 1 元，请选择其他商品")
 
+    # 道具ID没配就当这个商品在小程序里还没开卖。让用户看见「未配置」，
+    # 比给他一张微信永远找不到道具、只能卡在"支付中"的单子诚实得多。
+    if settings.wechat_vpay_enabled and not wechat_vpay_product_id(pack_id):
+        logger.warning("vpay: 商品 %s 未配置微信道具ID(productId)，拒单", pack_id)
+        raise HTTPException(status_code=503, detail="该商品的微信虚拟支付道具未配置，请在电脑浏览器购买")
+
     # 未配置虚拟支付：仅 debug 下走 mock 直接发货，便于本地联调
     if not settings.wechat_vpay_enabled:
         if not settings.debug:
@@ -141,11 +147,6 @@ async def create_vpay_order(
         )
 
     product_id = wechat_vpay_product_id(pack_id)
-    if product_id == pack_id:
-        # 未在后台/配置里映射道具ID，微信大概率会因找不到道具而拒单
-        logger.warning(
-            "vpay: 商品 %s 未配置微信道具ID(productId)，请在小程序后台创建道具并填入映射", pack_id
-        )
 
     # 官方已废弃 signData.platform；勿写入，否则易签名失败。设备路由由微信客户端完成。
     sign_payload = {

@@ -23,7 +23,7 @@
   height: 56rpx;
   border-radius: $radius-pill;
   background: $obsidian;
-  border: 2rpx solid $border-ritual;
+  border: 2rpx solid $border-subtle;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -55,7 +55,7 @@
   flex: 1;
   padding: $space-sm;
   background: $obsidian;
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border-subtle;
   border-radius: $radius-lg;
   margin-bottom: $space-xs;
 }

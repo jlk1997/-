@@ -12,11 +12,15 @@ from app.core.style_presets import apply_preset, list_presets
 from app.config import settings
 from app.copilot.moderation import moderate_copilot_input
 from app.copilot.actions import build_studio_actions
-from app.integrations.minimax.client import minimax_client
+from app.integrations.vendors.router import chat as routed_chat
+from app.integrations.vendors.router import chat_stream as routed_chat_stream
+from app.integrations.vendors.router import plan_journey as routed_plan_journey
 from app.models.schemas import StudioSession, User
 
-COPILOT_SYSTEM = """你是炼金音坊（Vibe Sorcery）的创作助手。帮助用户选择风格包、创作模式、填写意图、规划情绪旅程。
-可用工具：apply_preset, suggest_mode, explain_derivative, plan_journey_hint, start_generation, explain_credits。
+COPILOT_SYSTEM = """你是比特音（BitTune）的创作助手。帮助用户选择风格包、创作模式、填写意图、规划情绪旅程，或打开美化台。
+可用工具：apply_preset, suggest_mode, explain_derivative, plan_journey_hint, start_generation, explain_credits, open_creator_os, open_beautify。
+上架商店永远只传一条立体声母带（WAV）。分轨和伴奏是国内音乐人原创证明，不是 DistroKid / TuneCore 多轨，也不是假的 Logic 工程；K 歌伴奏要发独立曲目。用户问分轨、母带、原创证明或上架文件时，用 open_creator_os(release) 并说清这个分工。
+美化台 / 调音台 / 效果包改的是已生成成曲怎么响，不是创作页的风格包。用户说美化、套包、调音台、效果包时用 open_beautify，不要当成 apply_preset。
 回答简洁中文。若用户想直接生成，使用 start_generation 并说明预估额度；否则给出 preset/mode 建议让用户在工作室确认。"""
 
 TOOLS = [
@@ -50,6 +54,16 @@ TOOLS = [
         "description": "估算额度并准备一键生成（需用户确认）",
         "parameters": {"mode": "string", "text_intent": "string"},
     },
+    {
+        "name": "open_creator_os",
+        "description": "打开厂牌工作台、发行向导、连号收割、钱包、结算、配送、护照或同步柜台",
+        "parameters": {"target": "hub|release|accounts|wallet|settlements|deliveries|passport|commune|syncDesk|emotionCalendar"},
+    },
+    {
+        "name": "open_beautify",
+        "description": "打开美化台/调音台。套 MixGraph 效果包，打成一首新的立体声母带。不是风格包，也不是厂牌发行台。",
+        "parameters": {"work_id": "string", "pack_id": "string", "need": "string"},
+    },
 ]
 
 
@@ -58,6 +72,8 @@ def _tool_apply_preset(preset_id: str, steps: int = 6, text_intent: str = "") ->
         result = apply_preset(preset_id, steps=steps, overrides={"text_intent": text_intent})
         result["tool"] = "apply_preset"
         result["mode"] = "quickJourney"
+        result["confirm_needed"] = True
+        result["confirm_hint"] = "这是创作风格包，不是美化效果包。"
         return result
     except ValueError as e:
         return {"error": str(e), "tool": "apply_preset"}
@@ -94,7 +110,7 @@ async def _tool_plan_journey_hint(
     db: Session | None = None,
     user_id: str | None = None,
 ) -> dict:
-    plan = await minimax_client.plan_journey(text_intent, steps=steps, db=db, user_id=user_id)
+    plan = await routed_plan_journey(db=db, text_intent=text_intent, steps=steps, user_id=user_id)
     waypoints = plan.get("waypoints") or []
     journey = {
         "mode": "prompt_journey",
@@ -116,15 +132,17 @@ async def _tool_plan_journey_hint(
     }
 
 
-TOOL_SELECT_SYSTEM = """你是炼金音坊创作助手的工具路由器。根据用户消息选择最合适的工具。
+TOOL_SELECT_SYSTEM = """你是比特音创作助手的工具路由器。根据用户消息选择最合适的工具。
 只返回 JSON，格式：
 {"tool":"<name>","arguments":{...},"reason":"简短中文"}
-tool 必须是之一：apply_preset, suggest_mode, explain_derivative, plan_journey_hint, start_generation, explain_credits, none
-- apply_preset: preset_id, steps(默认6), text_intent
+tool 必须是之一：apply_preset, suggest_mode, explain_derivative, plan_journey_hint, start_generation, explain_credits, open_creator_os, open_beautify, none
+- apply_preset: preset_id, steps(默认6), text_intent。只用于创作页风格包，不是美化效果包。
 - suggest_mode: user_text
 - explain_derivative: topic(remix|cover|regenerate|anchor)
 - plan_journey_hint: text_intent, steps(默认6)
 - explain_credits: 额度/充值/会员问题
+- open_beautify: 美化台/调音台/效果包/套包/mixer。改已生成成曲，打成新立体声母带。
+- open_creator_os: 发行/对账/厂牌台/发行工作台/连号收割/钱包/结算/配送/护照/同步授权/公社/情绪日历。问分轨、母带、原创证明、DistroKid 上架文件时也走这里（target=release）。单独说「工作台」且没有发行/厂牌时走 open_beautify。
 - none: 纯闲聊无需工具"""
 
 
@@ -151,14 +169,14 @@ async def _select_tool_llm(
         f"可用 preset_id: {', '.join(preset_ids)}"
     )
     try:
-        raw = await minimax_client.chat_completion(
+        raw = await routed_chat(
+            db=db,
+            user_id=user_id,
             messages=[
                 {"role": "system", "content": TOOL_SELECT_SYSTEM},
                 {"role": "user", "content": prompt},
             ],
             response_format="json",
-            db=db,
-            user_id=user_id,
         )
         data = json.loads(raw)
         tool = data.get("tool")
@@ -193,7 +211,55 @@ async def run_tool(
         ctx_mode = args.get("mode")
         if not ctx_mode or ctx_mode == "quickTrack":
             args = {**args, "mode": args.get("mode", "quickTrack")}
-    return execute_tool(name, args)
+    return execute_tool(name, args, db=db, user_id=user_id)
+
+
+def _tool_open_creator_os(target: str = "hub") -> dict:
+    dest = {
+        "hub": "hub",
+        "release": "release",
+        "dataImport": "dataImport",
+        "import": "dataImport",
+        "accounts": "accounts",
+        "connector": "accounts",
+        "seats": "accounts",
+        "wallet": "wallet",
+        "settlements": "settlements",
+        "deliveries": "deliveries",
+        "passport": "passport",
+        "commune": "commune",
+        "sync": "syncDesk",
+        "syncDesk": "syncDesk",
+        "emotionCalendar": "emotionCalendar",
+        "calendar": "emotionCalendar",
+    }.get(target, "hub")
+    from app.services.royalty.payout_calendar import payout_calendar
+
+    cal = payout_calendar()
+    days = cal.get("days_until_payout")
+    if cal.get("is_payout_day"):
+        friday = f"今天是周五打款日 {cal.get('next_payout_date')}"
+    else:
+        friday = f"距周五打款还有 {days} 天（{cal.get('next_payout_date')}）"
+    hints = {
+        "hub": f"打开发行工作台：看待发行、对账和{friday}。发现页发布不是上架商店。",
+        "release": "去发行向导确认一键代发。上架只传一条立体声母带；分轨只给国内原创证明，不要当分曲上传。已登录官方后台时装连接器即可继续；没登录时进等登录一键，不会空标已上架。",
+        "accounts": "先连上你的店后台。钱从授权页收割进来，对不上的行不进钱包。",
+        "dataImport": "官方 CSV 是运营旁路，不是创作者主路径。先连号收割。",
+        "wallet": f"看法币钱包。{friday}。打款后通知带 VS-W 回单。积分打赏和版税净额不能加总。",
+        "settlements": f"看结算单：电台/同步/嵌入/商店分列，只含可结算法币。{friday}。",
+        "deliveries": "看各店配送：推送中 / 等登录一键 / 已上架。超时会标已加急。连接器离线时转入运营同 kit，不是空标上架。",
+        "passport": "看发行护照：上架母带、国内证明包、店链、AI 披露、短视频切片。上架后可去钱包和同步柜台。",
+        "commune": "创作者公社共享厂牌队列，不共享钱包。",
+        "syncDesk": "同步授权柜台：短视频/广告/游戏 BGM，一单常常超过一年流媒体 pennies。",
+        "emotionCalendar": "打开情绪日历：按本周心情选电台试听局，再确认一次发行。",
+    }
+    return {
+        "tool": "open_creator_os",
+        "target": dest,
+        "explanation": hints[dest],
+        "navigate": dest,
+    }
 
 
 def _tool_explain_credits() -> dict:
@@ -202,11 +268,12 @@ def _tool_explain_credits() -> dict:
     return {
         "tool": "explain_credits",
         "explanation": (
-            f"单曲 {GENERATION_COST} 额度 · 歌单 {PLAYLIST_COST} 额度 · Remix/Cover {REMIX_COST} 额度 · "
-            f"变体按数量计费 · 旅程规划免费。注册礼包 {settings.welcome_credits} 额度，"
+            f"一句话一次两版 {GENERATION_COST} 额度 · 歌单 {PLAYLIST_COST} 额度 · Remix/Cover {REMIX_COST} 额度 · "
+            f"3–5 个变体按数量计费 · 旅程规划免费。注册礼包 {settings.welcome_credits} 额度，"
             f"每日签到 +{settings.daily_checkin_credits}，任务可额外领取。"
         ),
         "pricing": [
+            {"label": "twoTakes", "cost": GENERATION_COST},
             {"label": "single", "cost": GENERATION_COST},
             {"label": "playlist", "cost": PLAYLIST_COST},
             {"label": "remix", "cost": REMIX_COST},
@@ -220,7 +287,7 @@ def _tool_start_generation(mode: str = "quickTrack", text_intent: str = "") -> d
     from app.services.credit_estimates import estimate_credits
 
     mode_map = {
-        "quickTrack": "single",
+        "quickTrack": "twoTakes",
         "playlist": "playlist",
         "textJourney": "playlist",
         "quickJourney": "playlist",
@@ -228,14 +295,18 @@ def _tool_start_generation(mode: str = "quickTrack", text_intent: str = "") -> d
         "cover": "cover",
         "variation": "variation",
         "vocals": "lyrics",
+        "lyrics": "twoTakes",
+        "twoTakes": "twoTakes",
     }
-    est_mode = mode_map.get(mode, "single")
-    est = estimate_credits(mode=est_mode)
+    est_mode = mode_map.get(mode, "twoTakes")
+    est = estimate_credits(mode=est_mode, variations=3 if est_mode == "variation" else None)
     create_mode = mode if mode in mode_map else "quickTrack"
     if create_mode in ("textJourney", "quickJourney"):
         create_mode = "playlist"
     if create_mode == "vocals":
         create_mode = "lyrics"
+    if create_mode == "twoTakes":
+        create_mode = "quickTrack"
     return {
         "tool": "start_generation",
         "mode": create_mode,
@@ -244,7 +315,62 @@ def _tool_start_generation(mode: str = "quickTrack", text_intent: str = "") -> d
     }
 
 
-def execute_tool(name: str, args: dict) -> dict:
+def _latest_owned_work_id(db: Session, user_id: uuid.UUID) -> str | None:
+    from app.models.schemas import Work
+
+    row = (
+        db.query(Work.id)
+        .filter(Work.owner_id == user_id)
+        .order_by(Work.created_at.desc())
+        .first()
+    )
+    return str(row[0]) if row else None
+
+
+def _tool_open_beautify(
+    db: Session | None = None,
+    user_id: uuid.UUID | None = None,
+    work_id: str | None = None,
+    pack_id: str | None = None,
+    need: str | None = None,
+) -> dict:
+    wid = str(work_id or "").strip() or None
+    if not wid and db is not None and user_id is not None:
+        wid = _latest_owned_work_id(db, user_id)
+    lite = "/packageStudio/pages/workbench-lite/index"
+    # The phone app no longer has a pro mixer page. Desktop mixing is /studio/mixer.
+    pro = lite
+    query: list[str] = []
+    if wid:
+        query.append(f"workId={wid}")
+    if pack_id:
+        query.append(f"packId={pack_id}")
+    if need:
+        query.append(f"need={need}")
+    if query:
+        lite = f"{lite}?{'&'.join(query)}"
+        pro = f"{pro}?{'&'.join(query)}"
+    return {
+        "tool": "open_beautify",
+        "work_id": wid,
+        "pack_id": pack_id,
+        "need": need,
+        "navigate": lite,
+        "navigate_pro": pro,
+        "explanation": (
+            "打开美化台。效果包改的是已生成成曲怎么响，不是创作页的风格包。"
+            "打成后仍是一首立体声母带，店端 tracks=1。"
+            + ("先选一首自己的成曲再套包。" if not wid else "")
+        ),
+    }
+
+
+def execute_tool(
+    name: str,
+    args: dict,
+    db: Session | None = None,
+    user_id: uuid.UUID | None = None,
+) -> dict:
     if name == "apply_preset":
         return _tool_apply_preset(
             args.get("preset_id", "lo-fi-night"),
@@ -257,6 +383,10 @@ def execute_tool(name: str, args: dict) -> dict:
         return _tool_explain_derivative(args.get("topic", "remix"))
     if name == "explain_credits":
         return _tool_explain_credits()
+    if name == "open_creator_os":
+        return _tool_open_creator_os(str(args.get("target") or "hub"))
+    if name == "open_beautify":
+        return _tool_open_beautify(db, user_id, args.get("work_id"), args.get("pack_id"), args.get("need"))
     if name == "start_generation":
         return _tool_start_generation(
             args.get("mode", "quickTrack"),
@@ -265,10 +395,93 @@ def execute_tool(name: str, args: dict) -> dict:
     return {"error": f"Unknown tool: {name}"}
 
 
+_CREATOR_OS_KEYS = (
+    "发行",
+    "分轨",
+    "母带",
+    "原创证明",
+    "distrokid",
+    "tunecore",
+    "对账",
+    "厂牌台",
+    "发行工作台",
+    "打款",
+    "导入csv",
+    "导入 CSV",
+    "官方csv",
+    "官方 CSV",
+    "连号",
+    "连接器",
+    "收割",
+    "对不上",
+    "未匹配",
+    "release wizard",
+    "data import",
+    "钱包",
+    "提现",
+    "回单",
+    "流水号",
+    "结算",
+    "配送",
+    "护照",
+    "同步授权",
+    "商用",
+    "公社",
+    "情绪日历",
+    "emotion calendar",
+)
+
+_BEAUTIFY_KEYS = (
+    "美化",
+    "调音台",
+    "效果包",
+    "套包",
+    "mixer",
+    "美化台",
+    "打成新作品",
+    "新手工作台",
+    "专业工作台",
+    "beautify",
+    "workbench",
+)
+
+
 def _pick_tool(message: str) -> tuple[str, dict]:
     lower = message.lower()
     if any(k in message for k in ("额度", "credits", "充值", "订阅", "会员", "扣费", "消耗", "定价", "月卡")):
         return "explain_credits", {}
+
+    creator_os = any(k in message or k in lower for k in _CREATOR_OS_KEYS)
+    if any(k in message or k in lower for k in _BEAUTIFY_KEYS) or (
+        "工作台" in message and not creator_os
+    ):
+        return "open_beautify", {}
+
+    if creator_os:
+        target = "hub"
+        if any(k in message for k in ("导入csv", "导入 CSV", "官方csv", "官方 CSV", "data import")):
+            target = "dataImport"
+        elif any(k in message for k in ("连号", "连接器", "收割", "对不上", "未匹配")):
+            target = "accounts"
+        elif any(k in message for k in ("钱包", "提现", "打款", "回单", "流水号")):
+            target = "wallet"
+        elif any(k in message for k in ("结算", "对账单")):
+            target = "settlements"
+        elif any(k in message for k in ("配送", "上架进度", "sla")):
+            target = "deliveries"
+        elif "护照" in message:
+            target = "passport"
+        elif any(k in message for k in ("同步授权", "商用", "sync")):
+            target = "syncDesk"
+        elif "公社" in message:
+            target = "commune"
+        elif any(k in message for k in ("情绪日历", "calendar")):
+            target = "emotionCalendar"
+        elif any(k in message for k in ("对账",)):
+            target = "settlements"
+        elif any(k in message or k in lower for k in ("发行", "release", "分轨", "母带", "原创证明", "distrokid", "tunecore")):
+            target = "release"
+        return "open_creator_os", {"target": target}
 
     if any(k in message for k in ("remix", "二次创作", "翻唱", "cover", "重生成", "锚定", "延续")):
         topic = "remix"
@@ -437,10 +650,10 @@ async def _generate_reply(
     user: User,
 ) -> str:
     try:
-        return await minimax_client.chat_completion(
-            messages=prepared["llm_messages"],
+        return await routed_chat(
             db=db,
             user_id=str(user.id),
+            messages=prepared["llm_messages"],
         )
     except Exception:
         return _fallback_reply(prepared["tool_name"], prepared["tool_result"])
@@ -538,10 +751,10 @@ async def chat_stream(
 
     if settings.copilot_llm_stream:
         try:
-            async for chunk in minimax_client.chat_completion_stream(
-                messages=result["llm_messages"],
+            async for chunk in routed_chat_stream(
                 db=db,
                 user_id=str(user.id),
+                messages=result["llm_messages"],
             ):
                 reply_parts.append(chunk)
                 yield {"type": "delta", "text": chunk}

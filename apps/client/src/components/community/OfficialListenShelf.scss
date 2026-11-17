@@ -1,0 +1,13 @@
+.official-listen {
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+  margin: 8rpx 0 16rpx;
+}
+
+.official-listen__hint {
+  color: var(--muted, rgba(255, 255, 255, 0.56));
+  font-size: var(--text-meta);
+  line-height: 1.5;
+  padding: 0 4rpx;
+}

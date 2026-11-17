@@ -111,6 +111,39 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
+  name: vibe-worker-dist
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vibe-worker-dist
+  template:
+    metadata:
+      labels:
+        app: vibe-worker-dist
+    spec:
+      containers:
+        - name: worker-dist
+          image: vibe-sorcery/worker:latest
+          command:
+            - celery
+            - -A
+            - app.celery_app.celery_app
+            - worker
+            - --loglevel=info
+            - -Q
+            - distribution,analytics,settlement
+            - --pool=prefork
+            - --concurrency=2
+          envFrom:
+            - secretRef:
+                name: vibe-secrets
+            - configMapRef:
+                name: vibe-config
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
   name: vibe-beat
 spec:
   replicas: 1

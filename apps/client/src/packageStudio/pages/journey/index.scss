@@ -245,7 +245,7 @@
   padding: $space-md;
   border-radius: $radius-lg;
   background: linear-gradient(165deg, rgba(22, 22, 34, 0.95) 0%, rgba(14, 14, 22, 0.98) 100%);
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border-subtle;
   position: relative;
   overflow: hidden;
 
@@ -258,11 +258,11 @@
   }
 
   &--calm::after {
-    background: linear-gradient(135deg, $gold 0%, $teal-mood 100%);
+    background: linear-gradient(135deg, $teal-mood 0%, rgba(147, 130, 180, 0.35) 100%);
   }
 
   &--hope::after {
-    background: linear-gradient(135deg, $gold 0%, rgba(147, 130, 180, 0.5) 100%);
+    background: linear-gradient(135deg, rgba(147, 130, 180, 0.5) 0%, $teal-mood 100%);
   }
 
   &--peace::after {

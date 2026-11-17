@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Depends
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_optional_user
@@ -12,6 +12,7 @@ from app.models.schemas import FeatureFlag, User
 from app.services.cache import cache_get, cache_set
 
 router = APIRouter(prefix="/config", tags=["config"])
+catalog_router = APIRouter(prefix="/catalog", tags=["catalog"])
 
 STUDIO_CURVES = list(JOURNEY_CURVES.keys())
 STUDIO_KEYS = [
@@ -59,26 +60,68 @@ def public_flags(db: Session = Depends(get_db)):
     return JSONResponse(content=data, headers={"Cache-Control": "public, max-age=60"})
 
 
+def _partners_configured() -> bool:
+    from app.services.distribution.adapters import CnLabelAdapter, DistroKidAdapter, RouteNoteAdapter, TuneCoreAdapter
+
+    return any(cls().configured() for cls in (DistroKidAdapter, TuneCoreAdapter, RouteNoteAdapter, CnLabelAdapter))
+
+
+def _kyc_configured() -> bool:
+    from app.services.kyc import provider_configured
+
+    return provider_configured()
+
+
+@catalog_router.get("/tracks")
+def catalog_tracks(station: str | None = None):
+    from app.services.catalog_seed import list_official_tracks
+
+    return {"tracks": list_official_tracks(station=station), "discovery_only": True}
+
+
+@catalog_router.get("/audio/{slug}")
+def catalog_audio(slug: str):
+    from app.services.catalog_seed import official_track_by_slug, synth_loop_wav
+
+    item = official_track_by_slug(slug)
+    if not item:
+        raise HTTPException(status_code=404, detail="Unknown catalog track")
+    return Response(content=synth_loop_wav(hz=float(item["hz"])), media_type="audio/wav")
+
+
+def _compose_p50() -> int:
+    try:
+        from app.services.queue_metrics import p50_compose_seconds
+
+        return int(p50_compose_seconds())
+    except Exception:
+        return int(settings.default_compose_eta_seconds)
+
+
 @router.get("/platform")
 def platform_info(user: User | None = Depends(get_optional_user)):
-    hit = cache_get("platform:info")
+    hit = cache_get("platform:info:v6")
     if hit is not None:
         return JSONResponse(content=hit, headers={"Cache-Control": "public, max-age=120"})
+    from app.health import _check_essentia_models
+    from app.services.seats.service import farm_can_navigate
+
+    essentia = _check_essentia_models()
     data = {
         "version": settings.app_version,
         "pipeline_version": settings.pipeline_version,
         "mock_ai": settings.use_mock_ai,
+        "mock_payment": settings.payment_mock_allowed,
+        "partner_stub": bool(settings.debug or settings.partner_stub_enabled),
+        "farm_navigate": farm_can_navigate(),
+        "partners_configured": _partners_configured(),
+        "essentia_ready": essentia.get("status") == "ok",
+        "payout_mode": "manual_only",
+        "kyc_provider_configured": _kyc_configured(),
+        "frontend_base_url": settings.frontend_base_url.rstrip("/"),
+        "connector_origins": settings.connector_trusted_origins(),
+        "debug": bool(settings.debug),
         "c2pa_enabled": settings.c2pa_enabled,
-        "minimax": {
-            "api_base": settings.minimax_api_base,
-            "music_model": settings.minimax_music_model,
-            "music_cover_model": settings.minimax_music_cover_model,
-            "chat_model": settings.minimax_chat_model,
-            "image_model": settings.minimax_image_model,
-            "cover_mode_default": settings.minimax_cover_mode_default,
-            "lyrics_optimizer_default": settings.minimax_lyrics_optimizer_default,
-            "docs": "https://platform.minimaxi.com/docs/guides/models-intro",
-        },
         "studio": {
             "curves": STUDIO_CURVES,
             "keys": STUDIO_KEYS,
@@ -86,18 +129,51 @@ def platform_info(user: User | None = Depends(get_optional_user)):
             "duration_options": STUDIO_DURATION_OPTIONS,
             "sound_recipe": SOUND_RECIPE_OPTIONS,
             "max_lyrics_length": 3500,
+            "max_prompt_length": 2000,
             "max_steps": 12,
             "min_steps": 1,
             "default_bpm_range": [80, 120],
             "default_key": "auto",
             "default_duration": "medium",
+            "lyrics_optimizer_default": settings.minimax_lyrics_optimizer_default,
+            "cover_mode_default": settings.minimax_cover_mode_default,
+            "song_modes": ["auto_lyrics", "lyrics", "instrumental"],
+            "default_song_mode": "auto_lyrics",
+            "freedom_levels": ["literal", "balanced", "open"],
+            "default_freedom": "balanced",
+            "structure_tags": [
+                "Intro",
+                "Verse",
+                "Pre Chorus",
+                "Chorus",
+                "Interlude",
+                "Bridge",
+                "Outro",
+                "Post Chorus",
+                "Transition",
+                "Break",
+                "Hook",
+                "Build Up",
+                "Inst",
+                "Solo",
+            ],
+            "structure_templates": [
+                {"id": "short", "minutes": 1},
+                {"id": "standard", "minutes": 3},
+                {"id": "full", "minutes": 4},
+                {"id": "instrumental", "minutes": 2},
+            ],
+            "compose_eta_p50_seconds": _compose_p50(),
+            "qualities": ["standard", "master"],
+            "wav_master_available": bool(settings.tokenhub_wav_enabled),
+            "vocal_is_guidance": True,
         },
         "wechat_subscribe": {
             "job_complete": settings.wechat_tpl_job_complete,
             "low_credits": settings.wechat_tpl_low_credits,
         },
     }
-    cache_set("platform:info", data, 120)
+    cache_set("platform:info:v6", data, 120)
     return JSONResponse(content=data, headers={"Cache-Control": "public, max-age=120"})
 
 

@@ -14,10 +14,10 @@
 .ui-hero-prompt__box {
   position: relative;
   background: rgba(14, 14, 22, 0.9);
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border-subtle;
   border-radius: $radius-lg;
   padding: $space-sm $space-md;
-  box-shadow: $shadow-sm, inset 0 1rpx 0 rgba(212, 175, 106, 0.08);
+  box-shadow: $shadow-sm;
 
   taro-textarea-core,
   .ui-hero-prompt__input {
@@ -74,46 +74,17 @@
   .ui-hero-prompt__label {
     font-size: var(--text-meta);
     font-weight: $font-weight-semibold;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: rgba(212, 175, 106, 0.9);
+    letter-spacing: 0.02em;
+    color: $muted;
     margin-bottom: $space-sm;
   }
 
   .ui-hero-prompt__box {
-    background: linear-gradient(160deg, rgba(20, 20, 32, 0.96) 0%, rgba(10, 10, 16, 0.98) 100%);
-    border-color: rgba(212, 175, 106, 0.2);
+    background: $obsidian;
+    border-color: $border;
     border-radius: $radius-lg;
     padding: $space-md;
-    box-shadow:
-      $shadow-md,
-      inset 0 1rpx 0 rgba(212, 175, 106, 0.12),
-      0 0 48rpx rgba(212, 175, 106, 0.06);
-
-    &::before,
-    &::after {
-      content: "";
-      position: absolute;
-      width: 28rpx;
-      height: 28rpx;
-      border-color: rgba(212, 175, 106, 0.45);
-      border-style: solid;
-      pointer-events: none;
-    }
-
-    &::before {
-      top: $space-sm;
-      left: $space-sm;
-      border-width: 2rpx 0 0 2rpx;
-      border-radius: 4rpx 0 0 0;
-    }
-
-    &::after {
-      bottom: $space-sm;
-      right: $space-sm;
-      border-width: 0 2rpx 2rpx 0;
-      border-radius: 0 0 4rpx 0;
-    }
+    box-shadow: $shadow-sm;
 
     .taro-textarea,
     textarea {
@@ -130,6 +101,6 @@
   }
 
   .ui-hero-prompt__count {
-    color: rgba(212, 175, 106, 0.55);
+    color: $muted;
   }
 }

@@ -17,7 +17,8 @@ def max_active_jobs(db: Session, user_id: uuid.UUID) -> int:
 
 
 def enforce_active_job_limit(db: Session, user: User) -> None:
-    """Lock active jobs for user; raise 409 when at capacity."""
+    """Serialize per-user creates so an empty active set cannot be double-booked."""
+    db.query(User).filter(User.id == user.id).with_for_update().first()
     limit = max_active_jobs(db, user.id)
     active_rows = (
         db.query(GenerationJob.id)

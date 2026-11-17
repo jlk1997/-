@@ -1,7 +1,7 @@
 .ui-segmented {
   display: flex;
   background: $obsidian;
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border-subtle;
   border-radius: $radius-pill;
   padding: 4rpx;
   gap: 4rpx;
@@ -19,9 +19,8 @@
   transition: all $duration-fast $ease-reveal;
 
   &--active {
-    background: linear-gradient(135deg, #e8c98a, $gold);
+    background: $gold;
     color: $void;
     font-weight: $font-weight-semibold;
-    box-shadow: $shadow-gold;
   }
 }

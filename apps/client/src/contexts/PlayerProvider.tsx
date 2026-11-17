@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import Taro from "@tarojs/taro";
-import { getCopy, type Locale, defaultLocale } from "@vibe-sorcery/i18n";
+import { type Locale, defaultLocale } from "@vibe-sorcery/i18n";
 import type { PlayerTrack } from "@vibe-sorcery/types";
 import { ListenCheckinSheet } from "../components/engagement/ListenCheckinSheet";
 import { createAudioEngine, type AudioEngine } from "../platform/audio";
@@ -17,20 +17,38 @@ import { playbackUrls } from "../platform/media";
 import { getItem, setItem } from "../platform/storage";
 import { vibeApi } from "../services/api";
 import { STACK_PAGE_ROUTES } from "../constants/routes";
+import { openStackPage } from "../utils/navigation";
+import { AUTH_EVENTS } from "../constants/events";
+import { isLoggedIn } from "../utils/auth";
+import { peekPendingCheckin } from "../platform/pendingCheckin";
 
 function getStoredLocale(): Locale {
   const stored = getItem("vibe-locale");
   return stored === "en" || stored === "zh" ? stored : defaultLocale;
 }
 
+function playerToast(kind: "queueEnd" | "playError") {
+  const en = getStoredLocale() === "en";
+  const title =
+    kind === "queueEnd"
+      ? en
+        ? "End of playlist"
+        : "播放列表已播完"
+      : en
+        ? "Unable to play this track"
+        : "无法播放，请稍后重试";
+  Taro.showToast({ title, icon: "none", duration: kind === "queueEnd" ? 2000 : 1500 });
+}
+
 function queueEndToast() {
-  Taro.showToast({ title: getCopy(getStoredLocale()).player.queueEnd, icon: "none", duration: 2000 });
+  playerToast("queueEnd");
 }
 
 type PlayTrackOptions = {
   queue?: PlayerTrack[];
   startIndex?: number;
   navigate?: boolean;
+  startAt?: number;
 };
 
 type PlayerTransportValue = {
@@ -59,6 +77,11 @@ type PlayerContextValue = PlayerTransportValue & PlayerProgressValue;
 
 const STORAGE_KEY = "vibe-player-v1";
 
+function isOfficialCatalogTrack(track: { id?: string; source?: string } | null | undefined): boolean {
+  if (!track?.id) return false;
+  return track.id.startsWith("catalog:") || track.source === "catalog";
+}
+
 const PlayerTransportContext = createContext<PlayerTransportValue | null>(null);
 const PlayerProgressContext = createContext<PlayerProgressValue | null>(null);
 
@@ -82,8 +105,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [checkinTrack, setCheckinTrack] = useState<{ workId: string; title: string; ratio: number } | null>(null);
+  const [checkinTrack, setCheckinTrack] = useState<{
+    workId: string;
+    title: string;
+    ratio: number;
+    station?: string;
+    isOwner?: boolean;
+  } | null>(null);
   const checkinShownRef = useRef<Set<string>>(new Set());
+  const embedReportedRef = useRef<Set<string>>(new Set());
 
   const queueRef = useRef(queue);
   const queueIndexRef = useRef(queueIndex);
@@ -97,10 +127,18 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const startedIdRef = useRef<string | null>(null);
   const preparedIdRef = useRef<string | null>(null);
 
+  const lastProgressTickRef = useRef(0);
+
   const ensureEngine = useCallback(() => {
     if (!engineRef.current) {
       engineRef.current = createAudioEngine({
-        onTimeUpdate: setCurrentTime,
+        onTimeUpdate: (time: number) => {
+          currentTimeRef.current = time;
+          const now = Date.now();
+          if (now - lastProgressTickRef.current < 250) return;
+          lastProgressTickRef.current = now;
+          setCurrentTime(time);
+        },
         onDurationChange: setDuration,
         onPlayingChange: setIsPlaying,
         onEnded: () => playNextRef.current(),
@@ -110,26 +148,34 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const playAtIndex = useCallback(
-    (tracks: PlayerTrack[], index: number, navigate = true) => {
+    (tracks: PlayerTrack[], index: number, navigate = true, startAt?: number) => {
       const track = tracks[index];
       if (!track) return;
       const engine = ensureEngine();
       setQueue(tracks);
       setQueueIndex(index);
       setCurrentTrack(track);
-      setCurrentTime(0);
+      setCurrentTime(startAt && startAt > 0 ? startAt : 0);
       setDuration(0);
       const { primary, fallback } = playbackUrls(track);
       startedIdRef.current = track.id;
-      void engine.play(primary, fallback).catch(() => {
-        Taro.showToast({ title: getCopy(getStoredLocale()).player.playError, icon: "none" });
-        setIsPlaying(false);
-      });
-      const communitySources = new Set(["feed", "user", "search", "library", "challenge", "charts", "duel", "works"]);
-      if (track.id && track.source && communitySources.has(track.source)) {
+      void engine
+        .play(primary, fallback)
+        .then(() => {
+          if (startAt && startAt > 0) {
+            engine.seek(startAt);
+            setCurrentTime(startAt);
+          }
+        })
+        .catch(() => {
+          playerToast("playError");
+          setIsPlaying(false);
+        });
+      const communitySources = new Set(["feed", "user", "search", "library", "challenge", "charts", "duel", "works", "radio", "emotion-calendar", "playlist", "generation"]);
+      if (track.id && track.source && communitySources.has(track.source) && !isOfficialCatalogTrack(track)) {
         vibeApi.trackEvent("community_listen", { work_id: track.id, source: track.source }).catch(() => {});
       }
-      if (navigate) Taro.navigateTo({ url: STACK_PAGE_ROUTES.nowPlaying });
+      if (navigate) openStackPage(STACK_PAGE_ROUTES.nowPlaying);
     },
     [ensureEngine]
   );
@@ -184,24 +230,79 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!currentTrack?.id || !duration || duration <= 0) return;
     const ratio = currentTime / duration;
-    const communitySources = new Set(["feed", "user", "search", "library", "challenge", "charts", "duel", "works"]);
+    const communitySources = new Set(["feed", "user", "search", "library", "challenge", "charts", "duel", "works", "radio", "emotion-calendar", "playlist", "generation"]);
     if (
       ratio >= 0.8 &&
       currentTrack.source &&
       communitySources.has(currentTrack.source) &&
+      !isOfficialCatalogTrack(currentTrack) &&
       !checkinShownRef.current.has(currentTrack.id)
     ) {
       checkinShownRef.current.add(currentTrack.id);
-      setCheckinTrack({ workId: currentTrack.id, title: currentTrack.title, ratio });
+      const snapshot = {
+        workId: currentTrack.id,
+        title: currentTrack.title,
+        ratio,
+        station: currentTrack.station,
+      };
+      const openSheet = (isOwner: boolean) => {
+        setCheckinTrack({ ...snapshot, isOwner });
+      };
+      if (typeof currentTrack.isOwner === "boolean") {
+        openSheet(currentTrack.isOwner);
+      } else {
+        vibeApi
+          .getWork(currentTrack.id)
+          .then((w) => openSheet(Boolean((w as { is_owner?: boolean }).is_owner)))
+          .catch(() => openSheet(false));
+      }
     }
-  }, [currentTime, duration, currentTrack?.id, currentTrack?.title, currentTrack?.source]);
+    if (ratio >= 0.8 && currentTrack.source === "embed" && currentTrack.id && !embedReportedRef.current.has(currentTrack.id)) {
+      embedReportedRef.current.add(currentTrack.id);
+      let visitor = "";
+      try {
+        visitor = getItem("vibe-embed-visitor") || "";
+        if (!visitor) {
+          visitor = `v_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+          setItem("vibe-embed-visitor", visitor);
+        }
+      } catch {
+        visitor = "anon";
+      }
+      vibeApi.reportEmbedComplete(currentTrack.id, { listen_ratio: ratio, visitor }).catch(() => {});
+    }
+  }, [currentTime, duration, currentTrack?.id, currentTrack?.title, currentTrack?.source, currentTrack?.isOwner, currentTrack?.station]);
+
+  useEffect(() => {
+    const resumePendingCheckin = () => {
+      if (!isLoggedIn()) return;
+      const pending = peekPendingCheckin();
+      if (!pending) return;
+      const snapshot = {
+        workId: pending.work_id,
+        title: pending.workTitle || "",
+        ratio: pending.listen_ratio,
+        station: pending.station,
+      };
+      const openSheet = (isOwner: boolean) => setCheckinTrack({ ...snapshot, isOwner });
+      vibeApi
+        .getWork(pending.work_id)
+        .then((w) => openSheet(Boolean((w as { is_owner?: boolean }).is_owner)))
+        .catch(() => openSheet(false));
+    };
+    Taro.eventCenter.on(AUTH_EVENTS.login, resumePendingCheckin);
+    resumePendingCheckin();
+    return () => {
+      Taro.eventCenter.off(AUTH_EVENTS.login, resumePendingCheckin);
+    };
+  }, []);
 
   const playTrack = useCallback(
     (track: PlayerTrack, options?: PlayTrackOptions) => {
       const tracks = options?.queue?.length ? options.queue : [track];
       let index = options?.startIndex ?? tracks.findIndex((t) => t.id === track.id);
       if (index < 0) index = 0;
-      playAtIndex(tracks, index, options?.navigate !== false);
+      playAtIndex(tracks, index, options?.navigate !== false, options?.startAt);
     },
     [playAtIndex]
   );
@@ -218,7 +319,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       const { primary, fallback } = playbackUrls(currentTrack);
       startedIdRef.current = currentTrack.id;
       void engine.play(primary, fallback).catch(() => {
-        Taro.showToast({ title: getCopy(getStoredLocale()).player.playError, icon: "none" });
+        playerToast("playError");
         setIsPlaying(false);
       });
     };
@@ -301,6 +402,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
             workId={checkinTrack.workId}
             workTitle={checkinTrack.title}
             listenRatio={checkinTrack.ratio}
+            station={checkinTrack.station}
+            isOwner={checkinTrack.isOwner}
             onDone={() => setCheckinTrack(null)}
             onDismiss={() => setCheckinTrack(null)}
           />

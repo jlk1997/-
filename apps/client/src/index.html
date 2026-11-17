@@ -1,19 +1,46 @@
 <!DOCTYPE html>
 <html>
 <head>
+  <script>
+    (function () {
+      try {
+        var search = location.search || "";
+        var hash = location.hash || "";
+        var query = search + (hash.indexOf("?") >= 0 ? "&" + hash.slice(hash.indexOf("?") + 1) : "");
+        if (/[?&]view=mobile(?:&|$)/.test(query)) {
+          localStorage.setItem("bittune-view", "mobile");
+          return;
+        }
+        if (/[?&]view=studio(?:&|$)/.test(query)) localStorage.removeItem("bittune-view");
+        if (localStorage.getItem("bittune-view") === "mobile") return;
+        var ua = navigator.userAgent || "";
+        if (/MicroMessenger/i.test(ua)) return;
+        var fine = window.matchMedia && window.matchMedia("(pointer: fine)").matches;
+        if (!fine || window.innerWidth < 1024) return;
+        var path = hash.replace(/^#/, "").split("?")[0] || "/";
+        var target = "/studio/create";
+        if (path.indexOf("/pages/library") === 0 || path.indexOf("/pages/works") >= 0) target = "/studio/library";
+        else if (path.indexOf("workbench") >= 0) target = "/studio/mixer";
+        else if (path.indexOf("creator") >= 0 || path.indexOf("release") >= 0) target = "/studio/release";
+        else if (path.indexOf("profile") >= 0 || path.indexOf("pricing") >= 0) target = "/studio/account";
+        else if (path.indexOf("/pages/feed") === 0) target = "/studio/discover";
+        location.replace(target);
+      } catch (e) {}
+    })();
+  </script>
   <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
   <meta content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover" name="viewport">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-touch-fullscreen" content="yes">
   <meta name="format-detection" content="telephone=no,address=no">
   <meta name="apple-mobile-web-app-status-bar-style" content="white">
   <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
   <link rel="icon" type="image/svg+xml" href="<%= require('./assets/brand/logo-icon.svg') %>">
-  <link rel="apple-touch-icon" href="<%= require('./assets/brand/logo-icon.png') %>">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;600;700&display=swap">
-  <title>炼金音坊</title>
+  <link rel="apple-touch-icon" href="<%= require('./assets/brand/apple-touch-icon.png') %>">
+  <title>比特音</title>
   <script><%= htmlWebpackPlugin.options.script %></script>
 </head>
 <body>

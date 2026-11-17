@@ -1,3 +1,3 @@
 export default {
-  navigationBarTitleText: "配方市场",
+  navigationBarTitleText: "风格包",
 };

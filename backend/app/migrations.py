@@ -48,6 +48,17 @@ MIGRATIONS = [
     ("user_subscriptions", "channel", "VARCHAR(32)"),
     ("user_subscriptions", "cancel_at_period_end", "BOOLEAN DEFAULT FALSE"),
     ("user_subscriptions", "stripe_customer_id", "VARCHAR(255)"),
+    ("users", "creator_level", "VARCHAR(32) DEFAULT 'standard'"),
+    ("users", "kyc_status", "VARCHAR(20) DEFAULT 'none'"),
+    ("users", "email_verified_at", "TIMESTAMP"),
+    ("works", "release_status", "VARCHAR(32) DEFAULT 'none'"),
+    ("works", "isrc", "VARCHAR(32)"),
+    ("works", "commercial_cleared_at", "TIMESTAMP"),
+    ("withdrawals", "receipt_no", "VARCHAR(40)"),
+    ("listen_checkins", "station", "VARCHAR(32)"),
+    ("vendor_keys", "inflight", "INTEGER DEFAULT 0"),
+    ("vendor_keys", "daily_used", "INTEGER DEFAULT 0"),
+    ("vendor_keys", "quota_date", "DATE"),
 ]
 
 
@@ -92,6 +103,57 @@ def run_migrations():
                     text(
                         "CREATE INDEX IF NOT EXISTS ix_payment_orders_status_paid_at "
                         "ON payment_orders (status, paid_at)"
+                    )
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+        if "vendor_keys" in existing_tables:
+            try:
+                conn.execute(
+                    text(
+                        "DELETE FROM vendor_keys a USING vendor_keys b "
+                        "WHERE a.ctid < b.ctid AND a.vendor = b.vendor "
+                        "AND a.capability = b.capability AND a.key_prefix = b.key_prefix"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS uq_vendor_keys_vendor_cap_prefix "
+                        "ON vendor_keys (vendor, capability, key_prefix)"
+                    )
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+        if "seat_jobs" in existing_tables:
+            try:
+                conn.execute(
+                    text(
+                        "DELETE FROM seat_jobs a USING seat_jobs b "
+                        "WHERE a.kind <> 'upload' AND b.kind <> 'upload' "
+                        "AND a.status IN ('queued', 'leased') AND b.status IN ('queued', 'leased') "
+                        "AND a.seat_id = b.seat_id AND a.kind = b.kind AND a.ctid < b.ctid"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS uq_seat_job_open_non_upload "
+                        "ON seat_jobs (seat_id, kind) "
+                        "WHERE status IN ('queued', 'leased') AND kind <> 'upload'"
+                    )
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+        if "platform_metric_snapshots" in existing_tables:
+            try:
+                conn.execute(
+                    text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS uq_metric_user_work_channel_period_source "
+                        "ON platform_metric_snapshots ("
+                        "user_id, COALESCE(work_id, '00000000-0000-0000-0000-000000000000'::uuid), "
+                        "channel_code, period_key, source)"
                     )
                 )
                 conn.commit()

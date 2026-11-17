@@ -43,7 +43,7 @@
   padding: 4rpx;
   background: rgba(255, 255, 255, 0.04);
   border-radius: $radius-pill;
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border-subtle;
 }
 
 .paywall-sheet__tab {
@@ -71,8 +71,6 @@
   color: $gold;
   font-size: var(--text-micro);
   font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 .paywall-sheet__perks {
@@ -112,6 +110,14 @@
   display: flex;
   gap: $space-xs;
   margin-top: $space-xs;
+}
+
+.paywall-sheet__stripe-hint {
+  display: block;
+  margin-top: $space-2xs;
+  color: $muted;
+  font-size: var(--text-micro);
+  line-height: 1.4;
 }
 
 .paywall-sheet__consent-hint {

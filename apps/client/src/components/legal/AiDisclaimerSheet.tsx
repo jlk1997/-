@@ -3,7 +3,7 @@ import { View, Text, ScrollView } from "@tarojs/components";
 import { useLocale } from "@vibe-sorcery/i18n";
 import { BottomSheet, Button } from "../ui";
 import { ConsentCheckbox } from "./ConsentCheckbox";
-import { LEGAL_ROUTES } from "../../utils/legal";
+import { LEGAL_ROUTES, legalDocLabel } from "../../utils/legal";
 import "./AiDisclaimerSheet.scss";
 
 type Props = {
@@ -14,7 +14,7 @@ type Props = {
 };
 
 export function AiDisclaimerSheet({ open, loading, onClose, onConfirm }: Props) {
-  const { copy } = useLocale();
+  const { copy, locale } = useLocale();
   const l = copy.legalUi;
   const [checked, setChecked] = useState(false);
 
@@ -24,7 +24,7 @@ export function AiDisclaimerSheet({ open, loading, onClose, onConfirm }: Props) 
       <ConsentCheckbox
         checked={checked}
         onChange={setChecked}
-        links={[{ label: `《${l.aiServiceNotice}》`, route: LEGAL_ROUTES.aiNotice }]}
+        links={[{ label: legalDocLabel(l.aiServiceNotice, locale), route: LEGAL_ROUTES.aiNotice }]}
       >
         {l.agreeAiNotice}
       </ConsentCheckbox>

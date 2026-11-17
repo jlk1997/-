@@ -19,7 +19,7 @@
   height: 96rpx;
   border-radius: $radius-pill;
   background: $gold-muted;
-  border: 2rpx solid $border-ritual;
+  border: 2rpx solid $border-subtle;
   box-shadow: $shadow-gold;
   display: flex;
   align-items: center;
@@ -69,7 +69,7 @@
   gap: $space-xs;
   padding: $space-md !important;
   background: $obsidian !important;
-  border: 1rpx solid $border-ritual !important;
+  border: 1rpx solid $border-subtle !important;
   box-shadow: $shadow-sm;
 }
 

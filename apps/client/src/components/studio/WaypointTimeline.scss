@@ -2,7 +2,7 @@
 .waypoint-timeline {
   padding: $space-sm;
   background: $obsidian;
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border-subtle;
   border-radius: $radius-lg;
   overflow-x: auto;
 }
@@ -43,7 +43,7 @@
   align-items: center;
   justify-content: center;
   z-index: 1;
-  border: 2rpx solid $border-ritual;
+  border: 2rpx solid $border-subtle;
   background: $slate-veil;
 }
 

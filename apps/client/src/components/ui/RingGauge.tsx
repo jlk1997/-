@@ -19,7 +19,7 @@ export function RingGauge({ value, max = 20, label, sublabel, onClick }: Props) 
       <View
         className="ui-ring-gauge__ring"
         style={{
-          background: `conic-gradient(#d4af6a ${deg}deg, rgba(22, 22, 34, 0.95) ${deg}deg)`,
+          background: `conic-gradient(#0a84ff ${deg}deg, rgba(22, 22, 34, 0.95) ${deg}deg)`,
         }}
       >
         <View className="ui-ring-gauge__inner">

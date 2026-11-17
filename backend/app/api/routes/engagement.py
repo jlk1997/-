@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, get_optional_user
 from app.database import get_db
 from app.models.schemas import User
-from app.services.listen_engagement import mood_radio_daily, remix_chain_depth, submit_listen_checkin, get_work_engagement_stats
+from app.services.listen_engagement import RADIO_RULES, mood_radio_daily, remix_chain_depth, submit_listen_checkin, get_work_engagement_stats
 
 router = APIRouter(prefix="/engagement", tags=["engagement"])
 
@@ -20,6 +20,7 @@ class ListenCheckinRequest(BaseModel):
     arousal: float | None = None
     valence: float | None = None
     mood_tags: list[str] = Field(default_factory=list)
+    station: str | None = None
 
 
 @router.post("/listen-checkin")
@@ -36,18 +37,49 @@ def listen_checkin(
         arousal=payload.arousal,
         valence=payload.valence,
         mood_tags=payload.mood_tags,
+        station=payload.station,
     )
 
 
 @router.get("/mood-radio")
 def mood_radio(
     limit: int = 3,
+    station: str | None = None,
     user: User | None = Depends(get_optional_user),
     db: Session = Depends(get_db),
 ):
-    return {
-        "tracks": mood_radio_daily(db, user.id if user else None, limit=min(max(limit, 1), 10)),
-    }
+    from app.services.radio.network import radio_network_payload
+
+    payload = radio_network_payload(db, user.id if user else None, station=station, limit=min(max(limit, 1), 12))
+    if not payload["tracks"]:
+        payload["tracks"] = mood_radio_daily(db, user.id if user else None, limit=min(max(limit, 1), 10))
+    return payload
+
+
+@router.get("/radio/stations")
+def radio_stations(user: User | None = Depends(get_optional_user), db: Session = Depends(get_db)):
+    from app.services.radio.network import radio_network_payload
+
+    return radio_network_payload(db, user.id if user else None, limit=8)
+
+
+@router.get("/radio/stations/{station}")
+def radio_station(
+    station: str,
+    limit: int = 8,
+    user: User | None = Depends(get_optional_user),
+    db: Session = Depends(get_db),
+):
+    from app.services.radio.network import radio_network_payload
+
+    return radio_network_payload(db, user.id if user else None, station=station, limit=min(max(limit, 1), 12))
+
+
+@router.get("/radio/chart")
+def radio_chart(db: Session = Depends(get_db)):
+    from app.services.radio.network import weekly_radio_chart
+
+    return {"chart": weekly_radio_chart(db, limit=8)}
 
 
 @router.get("/remix-chain/{work_id}")

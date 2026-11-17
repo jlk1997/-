@@ -126,13 +126,34 @@ def anchor_to_blockchain(content_hash: str, work_id: str) -> dict | None:
     """Optional blockchain anchoring stub — stores hash reference when enabled."""
     if not settings.blockchain_anchor_enabled:
         return None
+    if not settings.blockchain_rpc_url:
+        # A locally hashed string is not a transaction. Without an RPC there is nothing
+        # on any chain, so never hand back a tx_hash that explorers cannot resolve.
+        return {
+            "work_id": work_id,
+            "content_hash": content_hash,
+            "chain": None,
+            "rpc": None,
+            "tx_hash": None,
+            "anchored_at": None,
+            "status": "not_anchored",
+            "reason": "blockchain_rpc_url_missing",
+        }
     anchor_record = {
         "work_id": work_id,
         "content_hash": content_hash,
         "chain": "polygon",
-        "rpc": settings.blockchain_rpc_url or "mock",
+        "rpc": settings.blockchain_rpc_url,
         "tx_hash": f"0x{hashlib.sha256(f'{work_id}:{content_hash}'.encode()).hexdigest()[:64]}",
         "anchored_at": datetime.now(timezone.utc).isoformat(),
-        "status": "mock_anchored" if not settings.blockchain_rpc_url else "pending",
+        "status": "pending",
     }
     return anchor_record
+
+
+def c2pa_state(post_process_status: dict | None) -> str:
+    """embedded = manifest is inside the audio file. sidecar = JSON beside it. none = neither."""
+    pps = post_process_status or {}
+    if not (pps.get("c2pa_done") or pps.get("c2pa")):
+        return "none"
+    return "embedded" if pps.get("c2pa_embedded") else "sidecar"

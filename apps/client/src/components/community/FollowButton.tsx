@@ -10,9 +10,10 @@ type Props = {
   size?: "mini" | "default";
   /** When set, skips profile fetch (feed provides batch follow state). */
   initialFollowing?: boolean;
+  authNext?: string;
 };
 
-export function FollowButton({ username, size = "mini", initialFollowing }: Props) {
+export function FollowButton({ username, size = "mini", initialFollowing, authNext }: Props) {
   const { copy } = useLocale();
   const a = copy.actions;
   const [following, setFollowing] = useState(initialFollowing ?? false);
@@ -37,7 +38,11 @@ export function FollowButton({ username, size = "mini", initialFollowing }: Prop
   }, [username, initialFollowing]);
 
   async function toggle() {
-    if (!requireAuth()) return;
+    if (!isLoggedIn()) {
+      Taro.showToast({ title: a.followNeedLogin, icon: "none" });
+      requireAuth(authNext);
+      return;
+    }
     setLoading(true);
     try {
       const res = await vibeApi.followUser(username);

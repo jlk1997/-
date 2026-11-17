@@ -15,9 +15,9 @@ from app.models.schemas import ApiUsageLog
 class MiniMaxImageClient:
     """MiniMax image generation for work covers."""
 
-    def __init__(self, api_key: str | None = None):
+    def __init__(self, api_key: str | None = None, base_url: str | None = None):
         self.api_key = api_key or settings.minimax_api_key
-        self.base_url = settings.minimax_api_base
+        self.base_url = (base_url or settings.minimax_api_base).rstrip("/")
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",

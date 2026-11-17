@@ -22,6 +22,7 @@ def register_pending_order(
     channel: str,
     out_trade_no: str,
     amount_fen: int,
+    currency: str = "CNY",
     payment_terms_version: str | None = None,
 ) -> PaymentOrder:
     ttl_hours = max(1, int(settings.payment_order_ttl_hours))
@@ -31,6 +32,7 @@ def register_pending_order(
         channel=channel,
         out_trade_no=out_trade_no,
         amount_fen=amount_fen,
+        currency=(currency or "CNY").upper(),
         status="pending",
         payment_terms_version=payment_terms_version,
         expires_at=datetime.utcnow() + timedelta(hours=ttl_hours),
@@ -78,7 +80,9 @@ def list_user_orders(db: Session, user_id: uuid.UUID, *, limit: int = 20) -> lis
             "label": product_label(row.pack_id),
             "channel": row.channel,
             "amount_fen": row.amount_fen,
-            "amount_yuan": round(row.amount_fen / 100, 2),
+            "amount_minor": row.amount_fen,
+            "currency": row.currency or "CNY",
+            "amount_display": round(row.amount_fen / 100, 2),
             "status": row.status,
             "created_at": row.created_at.isoformat() if row.created_at else None,
             "paid_at": row.paid_at.isoformat() if row.paid_at else None,
@@ -117,11 +121,23 @@ def commercial_stats(db: Session, *, days: int = 30) -> dict[str, Any]:
     from app.models.schemas import CreditTransaction, UserSubscription
 
     since = datetime.utcnow() - timedelta(days=days)
+    # amount_fen holds minor units of the order currency, so CNY and USD must not be summed together.
     total_fen = (
         db.query(func.coalesce(func.sum(PaymentOrder.amount_fen), 0))
-        .filter(PaymentOrder.status == "paid", PaymentOrder.paid_at >= since)
+        .filter(
+            PaymentOrder.status == "paid",
+            PaymentOrder.paid_at >= since,
+            func.coalesce(PaymentOrder.currency, "CNY") == "CNY",
+        )
         .scalar()
     )
+    by_currency_rows = (
+        db.query(func.coalesce(PaymentOrder.currency, "CNY"), func.sum(PaymentOrder.amount_fen))
+        .filter(PaymentOrder.status == "paid", PaymentOrder.paid_at >= since)
+        .group_by(func.coalesce(PaymentOrder.currency, "CNY"))
+        .all()
+    )
+    revenue_by_currency = {str(cur): int(minor or 0) for cur, minor in by_currency_rows}
     paid_orders = (
         db.query(func.count(PaymentOrder.id))
         .filter(PaymentOrder.status == "paid", PaymentOrder.paid_at >= since)
@@ -177,6 +193,7 @@ def commercial_stats(db: Session, *, days: int = 30) -> dict[str, Any]:
         "revenue_fen": int(total_fen or 0),
         "revenue_yuan": round(int(total_fen or 0) / 100, 2),
         "revenue_by_channel_fen": by_channel,
+        "revenue_by_currency_minor": revenue_by_currency,
         "credit_transactions": int(credit_sales or 0),
         "active_subscriptions": int(active_subs or 0),
         "mrr_fen": int(mrr_fen),
@@ -208,11 +225,24 @@ def mark_order_paid(db: Session, out_trade_no: str, external_id: str) -> Payment
     return row
 
 
+def find_order_by_provider_ref(db: Session, provider_ref: str) -> PaymentOrder | None:
+    """Locate an order by a secondary provider handle (Stripe payment_intent / charge)."""
+    if not provider_ref:
+        return None
+    return (
+        db.query(PaymentOrder)
+        .filter(or_(PaymentOrder.provider_ref == provider_ref, PaymentOrder.external_id == provider_ref))
+        .order_by(PaymentOrder.created_at.desc())
+        .first()
+    )
+
+
 def complete_paid_order(
     db: Session,
     out_trade_no: str,
     *,
     provider_tx_id: str | None = None,
+    provider_ref: str | None = None,
     source: str,
 ) -> dict[str, Any]:
     """Idempotent fulfillment: skip if already paid; dedupe by out_trade_no."""
@@ -245,6 +275,8 @@ def complete_paid_order(
     )
     row.status = "paid"
     row.external_id = provider_tx_id or out_trade_no
+    if provider_ref:
+        row.provider_ref = provider_ref
     row.paid_at = datetime.utcnow()
     db.commit()
     db.refresh(row)
@@ -282,9 +314,11 @@ def revoke_paid_order(db: Session, out_trade_no: str, *, reason: str = "refund")
 
     reversed_credits = 0
     pack = CREDIT_PACKS.get(row.pack_id)
+    channel = (row.channel or "unknown").split("_")[0]
     if is_subscription_product(row.pack_id) or (pack and pack.get("type") == "duel_pass"):
         logger.warning(
-            "vpay refund needs manual handling (subscription/duel): order=%s pack=%s user=%s",
+            "refund needs manual handling (subscription/duel): channel=%s order=%s pack=%s user=%s",
+            channel,
             out_trade_no,
             row.pack_id,
             row.user_id,
@@ -299,7 +333,7 @@ def revoke_paid_order(db: Session, out_trade_no: str, *, reason: str = "refund")
                 db,
                 row.user_id,
                 -take,
-                source=f"wechat_vpay_{reason}",
+                source=f"{channel}_{reason}",
                 pack_id=row.pack_id,
                 external_id=f"refund_{out_trade_no}",
                 commit=False,
@@ -308,8 +342,14 @@ def revoke_paid_order(db: Session, out_trade_no: str, *, reason: str = "refund")
 
     row.status = "refunded"
     db.commit()
-    logger.info("vpay order refunded: %s reversed_credits=%s", out_trade_no, reversed_credits)
-    return {"refunded": True, "reversed_credits": reversed_credits}
+    logger.info(
+        "order refunded: channel=%s order=%s reason=%s reversed_credits=%s",
+        channel,
+        out_trade_no,
+        reason,
+        reversed_credits,
+    )
+    return {"refunded": True, "reversed_credits": reversed_credits, "reason": reason}
 
 
 async def stripe_refund_for_order(order: PaymentOrder) -> dict[str, Any]:

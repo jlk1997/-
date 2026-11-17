@@ -1,3 +1,5 @@
 export default {
-  navigationBarTitleText: "Vibe Sorcery",
+  navigationBarTitleText: "挑战",
+  enablePullDownRefresh: true,
+  backgroundTextStyle: "light",
 };

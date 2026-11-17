@@ -41,14 +41,21 @@ class EmotionEngine:
             self._evaluator = Evaluator(models_dir=self.models_dir)
         return self._evaluator
 
+    def ready(self) -> bool:
+        from app.health import _check_essentia_models
+
+        return Listener is not None and _check_essentia_models().get("status") == "ok"
+
     def analyze(self, audio_path: str) -> Dict[str, Any]:
-        if self.listener is None:
+        if not self.ready():
             return {
-                "moods": ["ambient"],
-                "genres": ["electronic"],
-                "arousal": 5.0,
-                "valence": 5.0,
+                "moods": [],
+                "genres": [],
+                "arousal": None,
+                "valence": None,
                 "embedding": [],
+                "degraded": True,
+                "reason": "essentia_not_ready",
             }
 
         moods, genres = self.listener.get_moods_and_genres(audio_path)

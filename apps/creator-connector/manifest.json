@@ -1,0 +1,134 @@
+{
+  "manifest_version": 3,
+  "name": "比特音创作者连接器",
+  "version": "0.14.0",
+  "minimum_chrome_version": "116",
+  "description": "在你已登录的音乐人后台，按你勾选的范围同步数据到比特音。结算入账需另行授权。",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "比特音连接器",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": ["storage", "activeTab", "scripting", "tabs", "alarms", "cookies", "clipboardRead", "downloads", "notifications"],
+  "host_permissions": [
+    "http://localhost/*",
+    "http://127.0.0.1/*",
+    "http://139.199.90.218/*",
+    "http://superformersmusic.com/*",
+    "http://www.superformersmusic.com/*",
+    "https://superformersmusic.com/*",
+    "https://www.superformersmusic.com/*"
+  ],
+  "optional_host_permissions": [
+    "https://music.163.com/*",
+    "https://y.qq.com/*",
+    "https://*.y.qq.com/*",
+    "https://music.qq.com/*",
+    "https://www.kugou.com/*",
+    "https://*.kugou.com/*",
+    "https://www.kuwo.cn/*",
+    "https://*.kuwo.cn/*",
+    "https://music.douyin.com/*",
+    "https://www.douyin.com/*",
+    "https://*.douyin.com/*",
+    "https://creator.douyin.com/*",
+    "https://www.bilibili.com/*",
+    "https://*.bilibili.com/*",
+    "https://member.bilibili.com/*",
+    "https://artists.spotify.com/*",
+    "https://open.spotify.com/*",
+    "https://artists.apple.com/*",
+    "https://music.apple.com/*",
+    "https://studio.youtube.com/*",
+    "https://www.youtube.com/*",
+    "https://music.youtube.com/*",
+    "https://youtu.be/*",
+    "https://www.tiktok.com/*",
+    "https://*.tiktok.com/*",
+    "https://music.amazon.com/*",
+    "https://artists.amazon.com/*",
+    "https://www.deezer.com/*",
+    "https://*.deezer.com/*",
+    "https://channels.weixin.qq.com/*",
+    "https://cp.kuaishou.com/*",
+    "https://*.kuaishou.com/*",
+    "https://soundcloud.com/*",
+    "https://*.soundcloud.com/*",
+    "https://*.bandcamp.com/*",
+    "https://bandcamp.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://127.0.0.1/*",
+        "http://localhost/*",
+        "http://127.0.0.1:10086/*",
+        "http://localhost:10086/*",
+        "http://127.0.0.1:3000/*",
+        "http://localhost:3000/*",
+        "http://139.199.90.218/*",
+        "http://superformersmusic.com/*",
+        "http://www.superformersmusic.com/*",
+        "https://superformersmusic.com/*",
+        "https://www.superformersmusic.com/*"
+      ],
+      "js": ["bridge.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://music.163.com/*",
+        "https://y.qq.com/*",
+        "https://*.y.qq.com/*",
+        "https://www.kugou.com/*",
+        "https://*.kugou.com/*",
+        "https://www.kuwo.cn/*",
+        "https://*.kuwo.cn/*",
+        "https://music.douyin.com/*",
+        "https://creator.douyin.com/*",
+        "https://*.douyin.com/*",
+        "https://artists.spotify.com/*",
+        "https://artists.apple.com/*",
+        "https://studio.youtube.com/*",
+        "https://member.bilibili.com/*",
+        "https://*.bilibili.com/*",
+        "https://channels.weixin.qq.com/*",
+        "https://cp.kuaishou.com/*",
+        "https://www.tiktok.com/*",
+        "https://artists.amazon.com/*",
+        "https://www.deezer.com/*",
+        "https://soundcloud.com/*",
+        "https://*.bandcamp.com/*"
+      ],
+      "js": ["ui-shared.js", "overlay.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "externally_connectable": {
+    "matches": [
+      "http://127.0.0.1/*",
+      "http://localhost/*",
+      "http://127.0.0.1:10086/*",
+      "http://localhost:10086/*",
+      "http://127.0.0.1:3000/*",
+      "http://localhost:3000/*",
+      "http://139.199.90.218/*",
+      "http://superformersmusic.com/*",
+      "http://www.superformersmusic.com/*",
+      "https://superformersmusic.com/*",
+      "https://www.superformersmusic.com/*"
+    ]
+  }
+}

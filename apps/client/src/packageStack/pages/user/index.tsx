@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { View } from "@tarojs/components";
+import { View, Text } from "@tarojs/components";
 import Taro, { useRouter, useShareAppMessage } from "@tarojs/taro";
 import { useLocale } from "@vibe-sorcery/i18n";
 import { workToPlayerTrack } from "@vibe-sorcery/types";
@@ -11,8 +11,8 @@ import { FollowButton } from "../../../components/community/FollowButton";
 import { Avatar, ChipGroup, EmptyState, ImmersiveCover, LoadingSkeleton, MetricCard, ViewModeToggle, Button, showError, showSuccess } from "../../../components/ui";
 import { vibeApi, type FeedPost } from "../../../services/api";
 import { workSharePayload } from "../../../platform/share";
-import { stackPage } from "../../../constants/routes";
-import { bootstrapAuth, requireAuth } from "../../../utils/auth";
+import { commercePage, stackPage } from "../../../constants/routes";
+import { bootstrapAuth, isLoggedIn, requireAuth } from "../../../utils/auth";
 import { useCreditsOptional } from "../../../contexts/CreditsProvider";
 import "./index.scss";
 
@@ -40,9 +40,12 @@ export default function UserPage() {
     display_name?: string;
     bio?: string;
     avatar_url?: string;
-    stats?: { works: number; followers: number; following: number };
+    stats?: { works: number; followers: number; following: number; live_store_total?: number; commercial_works?: number };
+    showcase?: {
+      featured?: Array<{ work_id: string; title?: string; cover_url?: string; live_stores?: number; commercial?: boolean }>;
+    };
   } | null>(null);
-  const [works, setWorks] = useState<Array<{ id: string; title: string; audio_url: string; cover_url?: string; hls_url?: string; moods?: string[] }>>([]);
+  const [works, setWorks] = useState<Array<{ id: string; title: string; audio_url: string; cover_url?: string; hls_url?: string; moods?: string[]; live_stores?: number; commercial?: boolean }>>([]);
   const [posts, setPosts] = useState<FeedPost[]>([]);
   const [tab, setTab] = useState<Tab>("works");
   const [view, setView] = useState<ViewMode>("grid");
@@ -51,12 +54,18 @@ export default function UserPage() {
   const [loadingSocial, setLoadingSocial] = useState(false);
   const [workPacks, setWorkPacks] = useState<WorkPack[]>([]);
   const [buyingPack, setBuyingPack] = useState<string | null>(null);
+  const [myUsername, setMyUsername] = useState<string | null>(null);
 
   useEffect(() => {
     if (!username) return;
     vibeApi.getUserProfile(username).then(setProfile).catch(() => {});
     vibeApi.getUserWorks(username).then(setWorks).catch(() => {});
     vibeApi.listUserWorkPacks(username).then(setWorkPacks).catch(() => setWorkPacks([]));
+    if (isLoggedIn()) {
+      vibeApi.me().then((me) => setMyUsername(me.username || null)).catch(() => setMyUsername(null));
+    } else {
+      setMyUsername(null);
+    }
   }, [username]);
 
   useEffect(() => {
@@ -92,7 +101,7 @@ export default function UserPage() {
   const pageTitle = profile?.display_name || (profile ? `@${profile.username}` : u.pageTitleFallback);
 
   async function buyPack(packId: string) {
-    if (!requireAuth()) return;
+    if (!requireAuth(stackPage("user", { username }))) return;
     setBuyingPack(packId);
     try {
       await vibeApi.purchaseWorkPack(packId);
@@ -118,7 +127,13 @@ export default function UserPage() {
                 <MetricCard icon="heart" value={profile.stats.following} label={u.statFollowing} variant="warm" />
               </View>
             )}
-            <FollowButton username={username} />
+            {(profile?.stats?.live_store_total || profile?.stats?.commercial_works) ? (
+              <View className="user-metrics">
+                <MetricCard icon="feed" value={profile.stats?.live_store_total || 0} label={u.statLiveStores} variant="info" />
+                <MetricCard icon="sigil" value={profile.stats?.commercial_works || 0} label={u.statCommercial} variant="accent" />
+              </View>
+            ) : null}
+            <FollowButton username={username} authNext={stackPage("user", { username })} />
           </View>
         </ImmersiveCover>
       )}
@@ -148,6 +163,33 @@ export default function UserPage() {
 
       {tab === "works" && (
         <>
+          {(profile?.showcase?.featured || []).some((item) => item.live_stores || item.commercial) && (
+            <View className="user-store">
+              <Text className="user-store__title">{u.showcaseTitle}</Text>
+              {(profile?.showcase?.featured || [])
+                .filter((item) => item.live_stores || item.commercial)
+                .slice(0, 4)
+                .map((item) => (
+                  <View
+                    key={item.work_id}
+                    className="user-store__card"
+                    onClick={() =>
+                      Taro.navigateTo({
+                        url: item.commercial
+                          ? commercePage("syncDesk", { workId: item.work_id })
+                          : stackPage("work", { workId: item.work_id }),
+                      })
+                    }
+                  >
+                    <Text className="user-store__name">{item.title || item.work_id}</Text>
+                    <Text className="typo-meta">
+                      {item.live_stores ? u.liveOnStores.replace("{n}", String(item.live_stores)) : ""}
+                      {item.commercial ? ` · ${u.goSyncBuy}` : ""}
+                    </Text>
+                  </View>
+                ))}
+            </View>
+          )}
           {workPacks.length > 0 && (
             <View className="user-store">
               <Text className="user-store__title">{u.creatorStore}</Text>
@@ -165,7 +207,14 @@ export default function UserPage() {
               ))}
             </View>
           )}
-          {works.length === 0 && <EmptyState iconName="music" title={u.emptyWorks} />}
+          {works.length === 0 && (
+            <EmptyState
+              iconName="music"
+              title={u.emptyWorks}
+              actionLabel={copy.tabBar.feed}
+              onAction={() => Taro.switchTab({ url: "/pages/feed/index" })}
+            />
+          )}
           {view === "grid" ? (
             <View className="user-works-grid">
               {works.map((item) => (
@@ -203,7 +252,13 @@ export default function UserPage() {
         <>
           {loadingPosts && <LoadingSkeleton count={3} />}
           {!loadingPosts && posts.length === 0 && (
-            <EmptyState iconName="feed" title={u.emptyPosts} description={u.postsComingDesc} />
+            <EmptyState
+              iconName="feed"
+              title={u.emptyPosts}
+              description={u.postsComingDesc}
+              actionLabel={copy.tabBar.feed}
+              onAction={() => Taro.switchTab({ url: "/pages/feed/index" })}
+            />
           )}
           {posts.map((p) => (
             <WorkCard
@@ -215,6 +270,10 @@ export default function UserPage() {
               moods={p.work?.moods}
               likeCount={p.like_count}
               workId={p.work?.id}
+              liveStores={p.work?.live_stores}
+              releaseStatus={p.work?.release_status}
+              isOwner={Boolean(myUsername && (p.author_username || username) === myUsername)}
+              authNext={stackPage("user", { username })}
               track={p.work ? workToPlayerTrack(p.work, { artist: username, source: "user" }) : undefined}
               queue={postsQueue}
               onProvenance={() => p.work?.id && Taro.navigateTo({ url: `/pages/provenance/index?workId=${p.work.id}` })}
@@ -227,7 +286,12 @@ export default function UserPage() {
         <>
           {loadingSocial && <LoadingSkeleton count={3} />}
           {!loadingSocial && socialList.length === 0 && (
-            <EmptyState iconName="profile" title={tab === "followers" ? u.emptyFollowers || u.emptyWorks : u.emptyFollowing || u.emptyWorks} />
+            <EmptyState
+              iconName="profile"
+              title={tab === "followers" ? u.emptyFollowers || u.emptyWorks : u.emptyFollowing || u.emptyWorks}
+              actionLabel={copy.tabBar.feed}
+              onAction={() => Taro.switchTab({ url: "/pages/feed/index" })}
+            />
           )}
           {socialList.map((person) => (
             <View

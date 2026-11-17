@@ -1,6 +1,7 @@
 """Remix permission integration tests."""
 
 import uuid
+from datetime import datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -32,6 +33,7 @@ def test_remix_custom_title(client, monkeypatch):
             email=f"{remixer_name}@test.local",
             username=remixer_name,
             hashed_password=hash_password("testpass123"),
+            ai_notice_accepted_at=datetime.utcnow(),
         )
         db.add_all([owner, remixer])
         db.flush()
@@ -48,8 +50,8 @@ def test_remix_custom_title(client, monkeypatch):
         db.commit()
 
         monkeypatch.setattr(
-            "app.api.routes.community.generate_single_task.apply_async",
-            lambda *args, **kwargs: None,
+            "app.services.job_dispatch.generate_single_task.apply_async",
+            lambda *args, **kwargs: type("Task", (), {"id": "test-remix-task"})(),
         )
 
         token = create_access_token(str(remixer.id))
@@ -88,6 +90,7 @@ def test_remix_forbidden_when_owner_disallows(client):
             email=f"{remixer_name}@test.local",
             username=remixer_name,
             hashed_password=hash_password("testpass123"),
+            ai_notice_accepted_at=datetime.utcnow(),
         )
         db.add_all([owner, remixer])
         db.flush()

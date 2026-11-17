@@ -8,7 +8,14 @@ from app.api.deps import get_current_user, get_optional_user
 from app.database import get_db
 from app.models.schemas import User
 from app.services.cache import cache_get, cache_set
-from app.services.legal import consent_status, get_required_versions, list_documents, record_consent, revoke_analytics_consent
+from app.services.legal import (
+    consent_status,
+    get_required_versions,
+    list_documents,
+    normalize_legal_locale,
+    record_consent,
+    revoke_analytics_consent,
+)
 
 router = APIRouter(prefix="/legal", tags=["legal"])
 
@@ -43,22 +50,24 @@ def get_legal_meta_endpoint():
 
 
 @router.get("/documents")
-def get_documents():
+def get_documents(locale: str | None = None):
+    loc = normalize_legal_locale(locale)
     return _cached_json(
-        "legal:documents",
+        f"legal:documents:{loc}",
         LEGAL_DOCS_TTL,
         lambda: {
-            "documents": list_documents(),
+            "documents": list_documents(loc),
             "required_versions": get_required_versions(),
         },
     )
 
 
 @router.get("/documents/{slug}")
-def get_document_content(slug: str):
+def get_document_content(slug: str, locale: str | None = None):
     from app.services.legal import get_document
 
-    return _cached_json(f"legal:doc:{slug}", LEGAL_DOCS_TTL, lambda: get_document(slug))
+    loc = normalize_legal_locale(locale)
+    return _cached_json(f"legal:doc:{slug}:{loc}", LEGAL_DOCS_TTL, lambda: get_document(slug, loc))
 
 
 @router.get("/consents/status")

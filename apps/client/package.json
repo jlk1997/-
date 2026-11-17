@@ -9,6 +9,7 @@
     "predev:weapp": "node scripts/ensure-mp-dist.mjs --build",
     "dev:weapp": "taro build --type weapp --watch",
     "build:h5": "taro build --type h5",
+    "postbuild:h5": "node scripts/hash-unhashed-css.mjs",
     "dev:h5": "taro build --type h5 --watch",
     "check:mp-size": "node scripts/check-mp-size.mjs",
     "check:mp-wxss": "node scripts/check-mp-wxss.mjs",

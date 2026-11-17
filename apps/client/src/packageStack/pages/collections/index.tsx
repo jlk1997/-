@@ -9,6 +9,7 @@ import { WorkCoverCard } from "../../../components/community/WorkCoverCard";
 import { AuthBanner, Button, EmptyState, LoadingSkeleton, StatPill, ViewModeToggle, showSuccess, showError } from "../../../components/ui";
 import { vibeApi } from "../../../services/api";
 import { bootstrapAuth, isLoggedIn, requireAuth } from "../../../utils/auth";
+import { STACK_PAGE_ROUTES } from "../../../constants/routes";
 import "./index.scss";
 
 type CollectionItem = Awaited<ReturnType<typeof vibeApi.listCollections>>[number];
@@ -49,7 +50,7 @@ export default function CollectionsPage() {
   const queue = useMemo(() => items.map((item) => workToPlayerTrack(item.work, { source: "collection" })), [items]);
 
   async function remove(workId: string) {
-    if (!requireAuth()) return;
+    if (!requireAuth(STACK_PAGE_ROUTES.collections)) return;
     try {
       await vibeApi.removeCollection(workId);
       setItems((prev) => prev.filter((i) => i.work.id !== workId));
@@ -62,8 +63,8 @@ export default function CollectionsPage() {
   if (!isLoggedIn()) {
     return (
       <PageShell label={copy.navGroups.works} title={c.title} subtitle={c.loginSubtitle} showCredits={false} ambient wide>
-        <AuthBanner message={copy.settingsUi.authBanner} loginLabel={copy.loginUi.login} />
-        <Button variant="primary" block className="auth-gate__cta" onClick={() => requireAuth()}>
+        <AuthBanner message={copy.settingsUi.authBanner} loginLabel={copy.loginUi.login} next={STACK_PAGE_ROUTES.collections} />
+        <Button variant="primary" block className="auth-gate__cta" onClick={() => requireAuth(STACK_PAGE_ROUTES.collections)}>
           {copy.loginUi.login}
         </Button>
       </PageShell>

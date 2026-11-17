@@ -21,8 +21,8 @@
   margin-bottom: $space-md;
   padding: $space-md;
   border-radius: $radius-lg;
-  background: linear-gradient(135deg, rgba(212, 175, 55, 0.12), rgba(22, 22, 34, 0.9));
-  border: 1rpx solid rgba(212, 175, 106, 0.22);
+  background: $obsidian;
+  border: 1rpx solid $border;
 }
 
 .pricing-hero__title {
@@ -56,10 +56,9 @@
   justify-content: center;
   margin-bottom: $space-lg;
   padding: $space-md;
-  background: linear-gradient(165deg, rgba(22, 22, 34, 0.94) 0%, rgba(14, 14, 22, 0.98) 100%);
-  border: 1rpx solid rgba(212, 175, 106, 0.18);
+  background: $obsidian;
+  border: 1rpx solid $border;
   border-radius: $radius-lg;
-  box-shadow: $shadow-sm, inset 0 1rpx 0 rgba(255, 255, 255, 0.04);
 }
 
 .pricing-grid {
@@ -87,7 +86,7 @@
   display: flex;
   justify-content: space-between;
   padding: $space-xs 0;
-  border-bottom: 1rpx solid $border-ritual;
+  border-bottom: 1rpx solid $border-subtle;
   color: $text;
   font-size: var(--text-body);
   font-family: var(--font-ui);
@@ -120,7 +119,7 @@
 .pricing-compare-table {
   margin-bottom: $space-md;
   border-radius: $radius-md;
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border-subtle;
   overflow: hidden;
 }
 
@@ -129,7 +128,7 @@
   grid-template-columns: 1.2fr 1fr 1fr;
   gap: $space-xs;
   padding: $space-sm $space-md;
-  border-bottom: 1rpx solid $border-ritual;
+  border-bottom: 1rpx solid $border-subtle;
   align-items: center;
 
   &:last-child {
@@ -138,7 +137,7 @@
 }
 
 .pricing-compare-table__head {
-  background: rgba(212, 175, 55, 0.08);
+  background: rgba(255, 255, 255, 0.04);
   font-weight: $font-weight-semibold;
 }
 
@@ -152,13 +151,13 @@
 .pricing-value-card {
   padding: $space-md;
   border-radius: $radius-md;
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border-subtle;
   background: rgba(255, 255, 255, 0.03);
 }
 
 .pricing-value-card--featured {
-  border-color: rgba(212, 175, 106, 0.35);
-  background: linear-gradient(135deg, rgba(212, 175, 55, 0.1), rgba(22, 22, 34, 0.6));
+  border-color: $gold;
+  background: $obsidian;
 }
 
 .pricing-value-card__title {

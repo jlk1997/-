@@ -1,14 +1,34 @@
-"""Emotion calendar — daily mood journal and monthly album."""
+"""Emotion calendar — daily mood journal, monthly album, weekly drop."""
 
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from sqlalchemy.orm import Session
 
 from app.models.schemas import EmotionJournalEntry, Playlist, PlaylistTrack, User, Work
+
+MOOD_TO_STATION = {
+    "calm": "calm",
+    "healing": "calm",
+    "peaceful": "calm",
+    "sad": "calm",
+    "melancholy": "calm",
+    "energetic": "commute",
+    "city": "commute",
+    "hopeful": "commute",
+    "joy": "commute",
+    "energy": "commute",
+    "night": "night",
+    "lofi": "night",
+    "dream": "night",
+    "ambient": "night",
+    "sleep": "night",
+    "study": "focus",
+    "focus": "focus",
+}
 
 
 def log_entry(
@@ -52,8 +72,6 @@ def log_entry(
 
 
 def list_entries(db: Session, user_id: uuid.UUID, *, days: int = 60) -> list[dict[str, Any]]:
-    from datetime import timedelta
-
     since = date.today() - timedelta(days=max(7, min(days, 365)))
     rows = (
         db.query(EmotionJournalEntry)
@@ -176,4 +194,125 @@ def _entry_dict(row: EmotionJournalEntry) -> dict[str, Any]:
         "mood_tags": row.mood_tags or [],
         "note": row.note,
         "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
+
+
+def infer_station_from_moods(
+    tags: list[str] | None,
+    *,
+    valence: float | None = None,
+    arousal: float | None = None,
+    now: datetime | None = None,
+) -> str:
+    from app.services.radio.network import station_of_the_day
+
+    tags_l = {str(tag).strip().lower() for tag in (tags or []) if str(tag).strip()}
+    for tag, station in MOOD_TO_STATION.items():
+        if tag in tags_l:
+            return station
+    if arousal is not None and arousal >= 3.5:
+        return "commute"
+    if valence is not None and valence <= 2.5:
+        return "calm"
+    if arousal is not None and arousal <= 2.2:
+        return "night"
+    return station_of_the_day(now=now)
+
+
+def _journal_week(db: Session, user_id: uuid.UUID) -> dict[str, Any]:
+    since = date.today() - timedelta(days=7)
+    rows = (
+        db.query(EmotionJournalEntry)
+        .filter(EmotionJournalEntry.user_id == user_id, EmotionJournalEntry.entry_date >= since)
+        .order_by(EmotionJournalEntry.entry_date.desc())
+        .all()
+    )
+    tags: list[str] = []
+    for row in rows:
+        tags.extend(str(tag) for tag in (row.mood_tags or []) if tag)
+    scored = [row for row in rows if row.arousal is not None or row.valence is not None]
+    avg_a = sum(float(row.arousal or 0) for row in scored) / max(len(scored), 1) if scored else None
+    avg_v = sum(float(row.valence or 0) for row in scored) / max(len(scored), 1) if scored else None
+    return {
+        "entries": len(rows),
+        "mood_tags": list(dict.fromkeys(tags))[:8],
+        "avg_arousal": round(avg_a, 2) if avg_a is not None else None,
+        "avg_valence": round(avg_v, 2) if avg_v is not None else None,
+    }
+
+
+def week_drop_plan(db: Session, user: User) -> dict[str, Any]:
+    """Map this week's journal to a radio station and one unpublished drop."""
+    from app.models.schemas import Release
+    from app.services.radio.network import STATIONS, describe_radio_trial, station_of_the_day
+
+    journal = _journal_week(db, user.id)
+    station = infer_station_from_moods(
+        journal["mood_tags"],
+        valence=journal["avg_valence"],
+        arousal=journal["avg_arousal"],
+    )
+    spec = STATIONS.get(station) or STATIONS["daily"]
+    active = {
+        row.work_id
+        for row in db.query(Release)
+        .filter(Release.owner_id == user.id, Release.status.in_(("queued", "delivering", "live")))
+        .all()
+    }
+    wanted = {str(tag).lower() for tag in journal["mood_tags"]}
+    candidates: list[tuple[int, Work]] = []
+    for work in (
+        db.query(Work)
+        .filter(Work.owner_id == user.id)
+        .order_by(Work.created_at.desc())
+        .limit(40)
+        .all()
+    ):
+        if work.id in active or not (work.audio_url or work.storage_key):
+            continue
+        moods = {str(mood).lower() for mood in (work.moods or [])}
+        overlap = len(moods & wanted)
+        candidates.append((overlap, work))
+    from app.services.royalty.hub import is_workbench_master, prefer_workbench_masters
+
+    pool = prefer_workbench_masters([row[1] for row in candidates])
+    kept = {row.id for row in pool}
+    candidates = [row for row in candidates if row[1].id in kept]
+    candidates.sort(key=lambda item: (item[0], item[1].created_at or datetime.min), reverse=True)
+    work = candidates[0][1] if candidates else None
+    trial = describe_radio_trial(db, work) if work else None
+    if not work:
+        next_action = "create"
+        why = "empty"
+    elif trial and trial.get("live"):
+        next_action = "watch_trial"
+        why = "emotion_week" if candidates and candidates[0][0] > 0 else "unpublished"
+    elif trial and trial.get("status") == "ended":
+        next_action = trial.get("next_action") or "release"
+        why = "trial_ended"
+    else:
+        next_action = "radio_trial"
+        why = "emotion_week" if candidates and candidates[0][0] > 0 else "unpublished"
+    return {
+        "station": station,
+        "station_name": spec.get("name"),
+        "station_blurb": spec.get("blurb"),
+        "station_of_day": station_of_the_day(),
+        "why": why,
+        "next_action": next_action,
+        "journal": journal,
+        "work": (
+            {
+                "work_id": str(work.id),
+                "title": work.title,
+                "cover_url": work.cover_url,
+                "moods": work.moods or [],
+                "qc_ready": getattr(work, "release_status", None) == "qc_ready",
+                "from_workbench": is_workbench_master(work),
+                "channel_suggestion": (trial or {}).get("channel_suggestion"),
+            }
+            if work
+            else None
+        ),
+        "radio_trial": trial,
     }

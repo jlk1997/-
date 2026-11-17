@@ -23,6 +23,7 @@ def _post_response(
     author_creator_level: str | None = None,
     parent_titles: dict | None = None,
     recommend_reason: str | None = None,
+    live_stores: int = 0,
 ) -> PostResponse:
     parent_title = None
     if work.parent_work_id and parent_titles:
@@ -40,7 +41,7 @@ def _post_response(
         liked_by_me=liked_by_me,
         author_is_following=author_is_following,
         collected_by_me=collected_by_me,
-        work=work_to_response(work, parent_title=parent_title),
+        work=work_to_response(work, parent_title=parent_title, live_stores=live_stores),
         created_at=post.created_at.isoformat(),
         recommend_reason=recommend_reason,
     )
@@ -55,7 +56,7 @@ def build_feed(
     limit: int = 50,
 ) -> list[PostResponse]:
     uid = str(user.id) if user else "anon"
-    cache_key = f"feed:v4:{uid}:{sort}:{tag or ''}:{limit}"
+    cache_key = f"feed:v6:{uid}:{sort}:{tag or ''}:{limit}"
     cached = cache_get(cache_key)
     if cached is not None:
         return [PostResponse(**row) for row in cached]
@@ -68,7 +69,14 @@ def build_feed(
     if not posts:
         return []
 
-    posts, personalize_ctx = rank_posts_with_context(db, posts, user, sort=sort)
+    rank_sort = sort
+    if sort == "personalized" and user:
+        from app.models.schemas import FeatureFlag
+
+        flag = db.query(FeatureFlag).filter(FeatureFlag.key == "personalized_feed").first()
+        if flag is not None and not flag.enabled:
+            rank_sort = "latest"
+    posts, personalize_ctx = rank_posts_with_context(db, posts, user, sort=rank_sort)
     posts = posts[:limit]
 
     work_ids = list({p.work_id for p in posts})
@@ -108,6 +116,10 @@ def build_feed(
     if parent_ids:
         parent_titles = {row.id: row.title for row in db.query(Work).filter(Work.id.in_(parent_ids)).all()}
 
+    from app.services.distribution.passport import live_store_counts
+
+    store_counts = live_store_counts(db, work_ids)
+
     results: list[PostResponse] = []
     for post in posts:
         work = works.get(post.work_id)
@@ -118,11 +130,12 @@ def build_feed(
                 reason = explain_post_recommendation(
                     post,
                     work,
-                    moods=personalize_ctx["moods"],
-                    genres=personalize_ctx["genres"],
-                    following_ids=personalize_ctx["following_ids"],
-                    work_embs=personalize_ctx["work_embs"],
-                    user_emb=personalize_ctx["user_emb"],
+                    moods=personalize_ctx.get("moods") or [],
+                    genres=personalize_ctx.get("genres") or [],
+                    following_ids=personalize_ctx.get("following_ids") or set(),
+                    work_embs=personalize_ctx.get("work_embs") or {},
+                    user_emb=personalize_ctx.get("user_emb"),
+                    heats=personalize_ctx.get("heats"),
                 )
             results.append(
                 _post_response(
@@ -135,6 +148,7 @@ def build_feed(
                     author_creator_level=creator_levels.get(post.author_id),
                     parent_titles=parent_titles,
                     recommend_reason=reason,
+                    live_stores=int(store_counts.get(work.id, store_counts.get(str(work.id), 0))),
                 )
             )
 
@@ -162,6 +176,9 @@ def build_user_posts(
 
     work_ids = list({p.work_id for p in posts})
     works = {w.id: w for w in db.query(Work).filter(Work.id.in_(work_ids)).all()}
+    from app.services.distribution.passport import live_store_counts
+
+    store_counts = live_store_counts(db, work_ids)
 
     liked_ids: set = set()
     if viewer and posts:
@@ -175,5 +192,13 @@ def build_user_posts(
     for post in posts:
         work = works.get(post.work_id)
         if work:
-            results.append(_post_response(post, work, author, liked_by_me=post.id in liked_ids))
+            results.append(
+                _post_response(
+                    post,
+                    work,
+                    author,
+                    liked_by_me=post.id in liked_ids,
+                    live_stores=int(store_counts.get(work.id, store_counts.get(str(work.id), 0))),
+                )
+            )
     return results

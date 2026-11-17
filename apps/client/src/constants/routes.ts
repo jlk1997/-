@@ -1,11 +1,43 @@
 import Taro from "@tarojs/taro";
+import { removeItem, setItem } from "../platform/storage";
 
 export const TAB_PAGE_ROUTES = [
   "/pages/create/index",
   "/pages/feed/index",
   "/pages/library/index",
+  "/pages/creator/index",
   "/pages/profile/index",
 ] as const;
+
+export const CREATOR_TAB_ROUTE = "/pages/creator/index";
+export const LIBRARY_PAGE_ROUTE = "/pages/library/index";
+export const CREATOR_PANE_KEY = "creator:pane";
+export const CREATOR_SHIP_WORK_KEY = "creator:shipWork";
+
+export type CreatorDeskPane = "today" | "release" | "money" | "tools";
+
+export function rememberShipWork(workId?: string) {
+  if (workId) setItem(CREATOR_SHIP_WORK_KEY, workId);
+  else removeItem(CREATOR_SHIP_WORK_KEY);
+}
+
+export function clearShipFocus() {
+  removeItem(CREATOR_SHIP_WORK_KEY);
+}
+
+export function openCreatorDesk(pane?: CreatorDeskPane, extra?: { workId?: string }) {
+  if (pane) setItem(CREATOR_PANE_KEY, pane);
+  if (extra?.workId) rememberShipWork(extra.workId);
+  Taro.switchTab({ url: CREATOR_TAB_ROUTE }).catch(() => {
+    void Taro.reLaunch({ url: CREATOR_TAB_ROUTE });
+  });
+}
+
+export function openLibrary() {
+  Taro.switchTab({ url: LIBRARY_PAGE_ROUTE }).catch(() => {
+    void Taro.reLaunch({ url: LIBRARY_PAGE_ROUTE });
+  });
+}
 
 export const TAB_PAGE_PATHS = TAB_PAGE_ROUTES.map((r) => r.replace(/^\//, ""));
 
@@ -14,6 +46,7 @@ export const COMMERCE_PAGE_ROUTES = {
   marketplace: "/packageCommerce/pages/marketplace/index",
   emotionCalendar: "/packageCommerce/pages/emotion-calendar/index",
   creatorEarnings: "/packageCommerce/pages/creator-earnings/index",
+  syncDesk: "/packageCommerce/pages/sync-desk/index",
 } as const;
 
 export const STACK_PAGE_ROUTES = {
@@ -34,6 +67,7 @@ export const STACK_PAGE_ROUTES = {
   marketplace: COMMERCE_PAGE_ROUTES.marketplace,
   emotionCalendar: COMMERCE_PAGE_ROUTES.emotionCalendar,
   creatorEarnings: COMMERCE_PAGE_ROUTES.creatorEarnings,
+  syncDesk: COMMERCE_PAGE_ROUTES.syncDesk,
 } as const;
 
 export function commercePage(route: keyof typeof COMMERCE_PAGE_ROUTES, query?: Record<string, string | undefined>): string {
@@ -56,12 +90,42 @@ export const STUDIO_PAGE_ROUTES = {
   journey: "/packageStudio/pages/journey/index",
   provenance: "/packageStudio/pages/provenance/index",
   feedback: "/packageStudio/pages/feedback/index",
+  variationLab: "/packageStudio/pages/variation-lab/index",
+  workbenchLite: "/packageStudio/pages/workbench-lite/index",
+  workbenchPro: "/packageStudio/pages/workbench-lite/index",
 } as const;
+
+export const CREATOR_PAGE_ROUTES = {
+  hub: "/packageCreator/pages/hub/index",
+  help: "/packageCreator/pages/help/index",
+  release: "/packageCreator/pages/release/index",
+  deliveries: "/packageCreator/pages/deliveries/index",
+  dataImport: "/packageCreator/pages/data-import/index",
+  settlements: "/packageCreator/pages/settlements/index",
+  wallet: "/packageCreator/pages/wallet/index",
+  accounts: "/packageCreator/pages/accounts/index",
+  work: "/packageCreator/pages/work/index",
+  passport: "/packageCreator/pages/passport/index",
+  commune: "/packageCreator/pages/commune/index",
+  remoteLogin: "/packageCreator/pages/remote-login/index",
+} as const;
+
+export function creatorPage(route: keyof typeof CREATOR_PAGE_ROUTES, query?: Record<string, string | undefined>): string {
+  const base = CREATOR_PAGE_ROUTES[route];
+  if (!query) return base;
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(query)) {
+    if (v != null && v !== "") params.set(k, v);
+  }
+  const qs = params.toString();
+  return qs ? `${base}?${qs}` : base;
+}
 
 export const SOCIAL_PAGE_ROUTES = {
   charts: "/packageSocial/pages/charts/index",
   duels: "/packageSocial/pages/duels/index",
   duel: "/packageSocial/pages/duel/index",
+  radio: "/packageSocial/pages/radio/index",
 } as const;
 
 export function socialPage(route: keyof typeof SOCIAL_PAGE_ROUTES, query?: Record<string, string | undefined>): string {
@@ -79,6 +143,7 @@ const LEGACY_STUDIO_PATHS: Record<string, string> = {
   "/pages/journey/index": STUDIO_PAGE_ROUTES.journey,
   "/pages/provenance/index": STUDIO_PAGE_ROUTES.provenance,
   "/pages/feedback/index": STUDIO_PAGE_ROUTES.feedback,
+  "/pages/variation-lab/index": STUDIO_PAGE_ROUTES.variationLab,
 };
 
 const LEGACY_COMMERCE_PATHS: Record<string, string> = {
@@ -122,7 +187,8 @@ export function studioPage(route: keyof typeof STUDIO_PAGE_ROUTES, query?: Recor
 }
 
 export function isTabRoute(route: string): boolean {
-  return TAB_PAGE_PATHS.some((p) => route.includes(p));
+  const n = route.replace(/^\//, "").split("?")[0];
+  return TAB_PAGE_PATHS.some((p) => n === p || n.endsWith(`/${p}`));
 }
 
 export function isTabUrl(url: string): boolean {
@@ -149,7 +215,8 @@ export function currentPageRoute(): string {
 export function currentLayoutRoute(): string {
   const fromStack = currentPageRoute();
   if (process.env.TARO_ENV === "h5" && typeof window !== "undefined") {
-    const hash = window.location.hash.replace(/^#\/?/, "").split("?")[0];
+    const hash = (window.location.hash || "").replace(/^#\/?/, "").split("?")[0]
+      || (window.location.pathname || "").replace(/^\//, "").split("?")[0];
     if (hash && isTabRoute(hash)) {
       const hashPath = hash.replace(/^\//, "");
       if (!fromStack || fromStack !== hashPath) return hashPath;

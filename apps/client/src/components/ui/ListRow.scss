@@ -5,7 +5,7 @@
   gap: $space-sm;
   padding: $space-sm;
   background: $obsidian;
-  border-bottom: 1rpx solid $border-ritual;
+  border-bottom: 1rpx solid $border-subtle;
   min-height: 96rpx;
   box-sizing: border-box;
 
@@ -22,7 +22,7 @@
     height: 56rpx;
     border-radius: $radius-md;
     background: $slate-veil;
-    border: 1rpx solid $border-ritual;
+    border: 1rpx solid $border-subtle;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -36,7 +36,7 @@
     font-weight: $font-weight-semibold;
     font-family: var(--font-mono);
     padding: $space-2xs $space-2xs;
-    border: 1rpx solid $border-ritual;
+    border: 1rpx solid $border-subtle;
     border-radius: $radius-pill;
     flex-shrink: 0;
   }

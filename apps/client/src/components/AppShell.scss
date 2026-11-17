@@ -15,9 +15,18 @@
   gap: $space-xs;
   padding: $space-2xs $space-sm;
   padding-top: calc(#{$space-2xs} + env(safe-area-inset-top, 0px));
-  background: rgba(5, 5, 8, 0.85);
+  background: rgba(5, 5, 8, 0.92);
   backdrop-filter: blur(24px);
-  border-bottom: 1rpx solid $border-ritual;
+  border-bottom: 1rpx solid $border-subtle;
+
+  @media (max-width: 480PX) {
+    backdrop-filter: none;
+    background: rgba(5, 5, 8, 0.96);
+  }
+
+  &--opening {
+    border-bottom-color: rgba(212, 175, 106, 0.45);
+  }
   height: calc(#{$app-header-height} + env(safe-area-inset-top, 0px));
   box-sizing: border-box;
 }
@@ -40,6 +49,17 @@
   color: $gold;
   font-size: var(--text-heading);
   opacity: 0.9;
+}
+
+.app-shell__opening {
+  position: absolute;
+  left: 50%;
+  bottom: 4rpx;
+  transform: translateX(-50%);
+  color: $gold;
+  font-size: var(--text-micro);
+  letter-spacing: 0.04em;
+  pointer-events: none;
 }
 
 .app-shell__actions {

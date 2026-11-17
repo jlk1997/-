@@ -69,7 +69,7 @@
   display: flex;
   justify-content: space-between;
   padding: $space-xs 0;
-  border-bottom: 1rpx solid $border-ritual;
+  border-bottom: 1rpx solid $border-subtle;
   color: $text;
   font-size: var(--text-body);
   font-family: var(--font-ui);
@@ -102,7 +102,7 @@
 .pricing-compare-table {
   margin-bottom: $space-md;
   border-radius: $radius-md;
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border-subtle;
   overflow: hidden;
 }
 
@@ -111,7 +111,7 @@
   grid-template-columns: 1.2fr 1fr 1fr;
   gap: $space-xs;
   padding: $space-sm $space-md;
-  border-bottom: 1rpx solid $border-ritual;
+  border-bottom: 1rpx solid $border-subtle;
   align-items: center;
 
   &:last-child {
@@ -134,7 +134,7 @@
 .pricing-value-card {
   padding: $space-md;
   border-radius: $radius-md;
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border-subtle;
   background: rgba(255, 255, 255, 0.03);
 }
 

@@ -1,27 +1,20 @@
-import { useState, useEffect, useMemo, useRef, lazy, Suspense } from "react";
-import { Text, View } from "@tarojs/components";
-import Taro, { useRouter, useDidShow } from "@tarojs/taro";
+import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from "react";
+import { Image, Text, View } from "@tarojs/components";
+import Taro, { useRouter, useDidShow, useShareAppMessage } from "@tarojs/taro";
 import { useLocale } from "@vibe-sorcery/i18n";
-import { PageShell, SectionLabel } from "../../components/PageShell";
+import { PageShell } from "../../components/PageShell";
 import { CreateModePicker, type CreateMode } from "../../components/studio/CreateModePicker";
-import { CreateFormulaPanel } from "../../components/studio/CreateFormulaPanel";
-import { PromptPreviewBar } from "../../components/studio/PromptPreviewBar";
-import { ReferenceTrackPicker } from "../../components/studio/ReferenceTrackPicker";
-import { WorkTitleSheet } from "../../components/studio/WorkTitleSheet";
 import {
   Button,
   BottomSheet,
-  ModeTileGrid,
   LoadingSkeleton,
   TextArea,
-  Icon,
   showSuccess,
   showError,
   CreditEstimateMeter,
-  type ModeTileItem,
-  StepRail,
 } from "../../components/ui";
 import { vibeApi, isInsufficientCredits, isRemixForbidden, generateIdempotencyKey, isActiveJobLimit, isRateLimited, isQueueOverload, getRateLimitRetryAfter } from "../../services/api";
+import { AUTH_EVENTS } from "../../constants/events";
 import { bootstrapAuth, requireAuth, isLoggedIn } from "../../utils/auth";
 import { useCreditsOptional } from "../../contexts/CreditsProvider";
 import { useActiveJobOptional } from "../../contexts/ActiveJobProvider";
@@ -29,12 +22,20 @@ import { useTheme } from "../../contexts/ThemeProvider";
 import { getItem, removeItem, setItem } from "../../platform/storage";
 import { requestGenerationSubscribeMessages } from "../../platform/wechatSubscribe";
 import { CommercialAlertBanners } from "../../components/commercial/CommercialAlertBanners";
+import { LaunchHonestyBanner } from "../../components/commercial/LaunchHonestyBanner";
+import { hapticLight } from "../../utils/haptic";
+import { showCoverUnavailable } from "../../utils/coverUnavailable";
 import { applyCreditsResponse, ensureSufficientCredits, taskCreditsGranted, type CreditsApiPayload } from "../../utils/creditsSync";
 import type { RemixSourceSnapshot } from "../../utils/generationStorage";
 import { clearActiveGeneration } from "../../utils/generationStorage";
 import { openStackPage } from "../../utils/navigation";
-import { STACK_PAGE_ROUTES, STUDIO_PAGE_ROUTES } from "../../constants/routes";
-import { openWorkDetail } from "../../utils/workNav";
+import { openWorkbench } from "../../utils/workbenchNav";
+import { goShipBand } from "../../packageCreator/nextActionNav";
+import { usePlayerTransport } from "../../contexts/PlayerProvider";
+import { needsBeautifyMaster } from "../../utils/workbenchWorks";
+import { prefetchCoreChunks } from "../../utils/prefetchH5";
+import { STUDIO_PAGE_ROUTES } from "../../constants/routes";
+import { workSharePayload } from "../../platform/share";
 import { trackActivation, trackActivationOnce } from "../../utils/activationEvents";
 import { useServerDraftSync } from "../../hooks/useServerDraftSync";
 import { persistActiveGeneration, resolveRestorableJobId } from "../../utils/restoreGeneration";
@@ -43,7 +44,7 @@ import { CoachMarks } from "../../components/onboarding/CoachMarks";
 import { AiDisclaimerSheet } from "../../components/legal/AiDisclaimerSheet";
 import { fetchConsentStatus, ensureAiNoticeConsent } from "../../utils/consent";
 import { resolveWorkTitle } from "../../utils/workTitle";
-import { emptyCreativeSpec, type MusicCreativeSpec, type SoundRecipeOptions } from "@vibe-sorcery/types";
+import { emptyCreativeSpec, workToPlayerTrack, type MusicCreativeSpec, type SoundRecipeOptions } from "@vibe-sorcery/types";
 import {
   buildPayloadSpec,
   hasCreativeConstraints,
@@ -52,16 +53,14 @@ import {
   STUDIO_CREATIVE_SPEC_KEY,
 } from "../../utils/creativeSpec";
 
-import { GenerationProgress } from "../../components/studio/GenerationProgress";
-
 import "./index.scss";
 import "../../styles/tab-page.scss";
 
-import type { StylePreset } from "../../components/studio/PresetCarousel";
+import { PresetCarousel, type StylePreset } from "../../components/studio/PresetCarousel";
+import { CreateFormulaPanel } from "../../components/studio/CreateFormulaPanel";
 
-const PresetCarousel = lazy(() =>
-  import("../../components/studio/PresetCarousel").then((m) => ({ default: m.PresetCarousel }))
-);
+const CREATE_NEXT = "/pages/create/index";
+
 const SoundRecipePanel = lazy(() =>
   import("../../components/studio/SoundRecipePanel").then((m) => ({ default: m.SoundRecipePanel }))
 );
@@ -74,18 +73,46 @@ const RemixFlowPanel = lazy(() =>
 const WorkPicker = lazy(() =>
   import("../../components/studio/WorkPicker").then((m) => ({ default: m.WorkPicker }))
 );
+const SongSetupBar = lazy(() =>
+  import("../../components/studio/SongSetupBar").then((m) => ({ default: m.SongSetupBar }))
+);
+const LyricsStructureEditor = lazy(() =>
+  import("../../components/studio/LyricsStructureEditor").then((m) => ({ default: m.LyricsStructureEditor }))
+);
+const PromptPreviewBar = lazy(() =>
+  import("../../components/studio/PromptPreviewBar").then((m) => ({ default: m.PromptPreviewBar }))
+);
+const ReferenceTrackPicker = lazy(() =>
+  import("../../components/studio/ReferenceTrackPicker").then((m) => ({ default: m.ReferenceTrackPicker }))
+);
+const WorkTitleSheet = lazy(() =>
+  import("../../components/studio/WorkTitleSheet").then((m) => ({ default: m.WorkTitleSheet }))
+);
+const GenerationProgress = lazy(() =>
+  import("../../components/studio/GenerationProgress").then((m) => ({ default: m.GenerationProgress }))
+);
 
 const CreditsPaywallSheet = lazy(() =>
   import("../../components/ui/CreditsPaywallSheet").then((m) => ({ default: m.CreditsPaywallSheet }))
 );
-const LazyEngagementPanel = lazy(() =>
-  import("../../components/engagement/EngagementPanel").then((m) => ({ default: m.EngagementPanel }))
-);
 
 function shouldPromptWorkTitle(mode: CreateMode, coverStep: "pick" | "preprocess" | "generate") {
-  if (mode === "quickTrack" || mode === "playlist" || mode === "lyrics" || mode === "variation" || mode === "remix") return true;
+  if (mode === "quickTrack" || mode === "lyrics") return false;
+  if (mode === "playlist" || mode === "variation" || mode === "remix") return true;
   if (mode === "cover" && coverStep === "generate") return true;
   return false;
+}
+
+type CreateAction = "compose" | "sameStyle" | "regenerate";
+
+function resolveSeedMode(seedMode: string | null): { mode: CreateMode; action: CreateAction } {
+  if (seedMode === "cover") return { mode: "cover", action: "compose" };
+  if (seedMode === "variation") return { mode: "variation", action: "compose" };
+  if (seedMode === "remix") return { mode: "remix", action: "compose" };
+  if (seedMode === "lyrics") return { mode: "lyrics", action: "compose" };
+  if (seedMode === "sameStyle") return { mode: "quickTrack", action: "sameStyle" };
+  if (seedMode === "regenerate") return { mode: "quickTrack", action: "regenerate" };
+  return { mode: "quickTrack", action: "sameStyle" };
 }
 
 export default function CreatePage() {
@@ -94,11 +121,22 @@ export default function CreatePage() {
   const c = copy.createUi;
   const modes = copy.studioSummary.modes;
   const creditsCtx = useCreditsOptional();
+  const { playTrack } = usePlayerTransport();
   const activeJobCtx = useActiveJobOptional();
+
+  useShareAppMessage((res) => {
+    const ds = (res?.target as { dataset?: Record<string, string> } | undefined)?.dataset;
+    if (ds?.workid) return workSharePayload(ds.workid, ds.title || copy.brand.name);
+    return { title: copy.brand.name };
+  });
   const [mode, setMode] = useState<CreateMode>("quickTrack");
+  const [createAction, setCreateAction] = useState<CreateAction>("compose");
+  const [recipeReady, setRecipeReady] = useState(false);
+  const [revisingLyrics, setRevisingLyrics] = useState(false);
+  const [remeltPreferred, setRemeltPreferred] = useState(false);
   const [presets, setPresets] = useState<StylePreset[]>([]);
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
-  const [textIntent, setTextIntent] = useState(c.defaultIntent);
+  const [textIntent, setTextIntent] = useState("");
   const [diagnosisOpen, setDiagnosisOpen] = useState(true);
   const [diagnosisSummary, setDiagnosisSummary] = useState("");
   const [workTitle, setWorkTitle] = useState("");
@@ -108,7 +146,7 @@ export default function CreatePage() {
   const [seedWorkTitle, setSeedWorkTitle] = useState("");
   const [seedRemixAllowed, setSeedRemixAllowed] = useState(true);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
-  const [activeJobType, setActiveJobType] = useState<"single" | "playlist" | "variations" | "remix">("single");
+  const [activeJobType, setActiveJobType] = useState<"single" | "playlist" | "variations" | "remix" | "workbench">("single");
   const [activeJobStartedAt, setActiveJobStartedAt] = useState<string | undefined>();
   const [submitting, setSubmitting] = useState(false);
   const [generatingLyrics, setGeneratingLyrics] = useState(false);
@@ -120,33 +158,65 @@ export default function CreatePage() {
   const [titleDraft, setTitleDraft] = useState("");
   const [coverStep, setCoverStep] = useState<"pick" | "preprocess" | "generate">("pick");
   const [coverLyrics, setCoverLyrics] = useState("");
+  const [coverLyricLock, setCoverLyricLock] = useState(false);
   const [draftsOpen, setDraftsOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [moreModesOpen, setMoreModesOpen] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
   const [drafts, setDrafts] = useState<
     Array<{ id: string; title: string; mode: string; payload: Record<string, unknown>; version?: number }>
   >([]);
   const generateLatchRef = useRef(false);
+  const generateJobRef = useRef<string | null>(null);
+  const generateIdempotencyRef = useRef<string | null>(null);
+  const lastShowRefreshRef = useRef(0);
+  const deferredShowRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { setMood } = useTheme();
   const credits = creditsCtx?.balance ?? null;
   const gateEnabled = creditsCtx?.gateEnabled ?? false;
   const creditsReady = creditsCtx?.ready ?? false;
-  const creditsBlocked = gateEnabled && (!creditsReady || credits == null || credits < creditCost);
   const [worksCount, setWorksCount] = useState(0);
-  const [recentWork, setRecentWork] = useState<{ id: string; title: string } | null>(null);
+  const [recentWork, setRecentWork] = useState<{
+    id: string;
+    title: string;
+    from_workbench?: boolean;
+    superseded_by_work_id?: string | null;
+  } | null>(null);
+  const [checkinToday, setCheckinToday] = useState<boolean | null>(null);
+  const [checkingIn, setCheckingIn] = useState(false);
+  const [completedWorkId, setCompletedWorkId] = useState<string | null>(null);
   const [paywallOpen, setPaywallOpen] = useState(false);
   const [paywallCredits, setPaywallCredits] = useState(1);
   const [paywallSource, setPaywallSource] = useState("create_dock");
   const [coachOpen, setCoachOpen] = useState(false);
+  const [coachAnchor, setCoachAnchor] = useState<string | undefined>();
+  const onCoachVisibility = useCallback((visible: boolean, anchor?: string) => {
+    setCoachOpen(visible);
+    setCoachAnchor(visible ? anchor : undefined);
+  }, []);
+  const [, setAuthTick] = useState(0);
+  useEffect(() => {
+    const bump = () => setAuthTick((n) => n + 1);
+    Taro.eventCenter.on(AUTH_EVENTS.login, bump);
+    Taro.eventCenter.on(AUTH_EVENTS.logout, bump);
+    return () => {
+      Taro.eventCenter.off(AUTH_EVENTS.login, bump);
+      Taro.eventCenter.off(AUTH_EVENTS.logout, bump);
+    };
+  }, []);
   const [paywallTab, setPaywallTab] = useState<"member" | "pack">("pack");
-  const [subscription, setSubscription] = useState<Awaited<ReturnType<typeof vibeApi.getSubscription>> | null>(null);
+  const subscription = creditsCtx?.subscription ?? null;
   const [estimatedCredits, setEstimatedCredits] = useState(1);
   const [activeRemixSource, setActiveRemixSource] = useState<RemixSourceSnapshot | null>(null);
   const [referenceWorkId, setReferenceWorkId] = useState<string | null>(null);
   const [referenceAvOffset, setReferenceAvOffset] = useState<{ arousal: number; valence: number }>({ arousal: 0, valence: 0 });
   const [pickerWorks, setPickerWorks] = useState<Array<{ id: string; title: string; cover_url?: string }>>([]);
+  const [progressOpen, setProgressOpen] = useState(true);
   const [creativeSpec, setCreativeSpec] = useState<MusicCreativeSpec>(emptyCreativeSpec);
+  const [songMode, setSongMode] = useState<"auto_lyrics" | "lyrics" | "instrumental">("auto_lyrics");
+  const [freedom, setFreedom] = useState<"literal" | "balanced" | "open">("balanced");
+  const [takes, setTakes] = useState<1 | 2>(2);
+  const [songQuality, setSongQuality] = useState<"standard" | "master">("standard");
+  const [quickSong, setQuickSong] = useState(false);
   const [soundRecipeOptions, setSoundRecipeOptions] = useState<SoundRecipeOptions | null>(null);
   const [keyOptions, setKeyOptions] = useState<string[]>(["auto"]);
   const [bpmPresets, setBpmPresets] = useState<Array<{ label: string; range: [number, number] }>>([]);
@@ -156,43 +226,119 @@ export default function CreatePage() {
     [creativeSpec, soundRecipeOptions, locale],
   );
 
+  const songWrite = mode === "quickTrack" || mode === "lyrics";
+  const specNeedsLabels = Boolean(
+    creativeSpec.instruments.length ||
+      creativeSpec.genres.length ||
+      creativeSpec.moods.length ||
+      creativeSpec.tempo_feel ||
+      (creativeSpec.key && creativeSpec.key !== "auto") ||
+      creativeSpec.texture ||
+      creativeSpec.meter ||
+      creativeSpec.era ||
+      creativeSpec.vocal_gender ||
+      creativeSpec.vocal_style ||
+      creativeSpec.language ||
+      creativeSpec.bpm,
+  );
+  const twoTakes = (songWrite && takes === 2) || (!songWrite && createAction !== "compose" && mode !== "playlist" && mode !== "remix" && mode !== "cover");
+
+  const choiceChips = useMemo(() => {
+    const chips: Array<{ id: string; label: string }> = [];
+    const labelOf = (
+      list: Array<{ id: string; label_zh?: string; label_en?: string; label?: string }> | undefined,
+      id: string,
+    ) => {
+      const item = list?.find((row) => row.id === id);
+      if (!item) return "";
+      return locale === "zh" ? item.label_zh || item.label || item.label_en || "" : item.label_en || item.label || item.label_zh || "";
+    };
+    if (songWrite) {
+      chips.push({
+        id: "write",
+        label: songMode === "lyrics" ? c.songModeLyrics : songMode === "instrumental" ? c.songModeInst : c.songModeAuto,
+      });
+    }
+    const preset = presets.find((row) => row.id === selectedPresetId);
+    if (preset?.label) chips.push({ id: "style", label: preset.label });
+    if (lyrics.trim()) chips.push({ id: "lyrics", label: c.choiceLyrics });
+    if (diagnosisSummary.trim()) {
+      const text = diagnosisSummary.trim();
+      chips.push({ id: "mood", label: text.length > 18 ? `${text.slice(0, 18)}…` : text });
+    } else if (creativeSpec.arousal != null || creativeSpec.valence != null) {
+      chips.push({ id: "mood", label: c.choiceMoodSet });
+    }
+    for (const id of creativeSpec.instruments) {
+      const label = labelOf(soundRecipeOptions?.instruments, id);
+      if (label) chips.push({ id: `inst-${id}`, label });
+    }
+    for (const id of creativeSpec.genres) {
+      const label = labelOf(soundRecipeOptions?.genres, id);
+      if (label) chips.push({ id: `genre-${id}`, label });
+    }
+    for (const id of creativeSpec.moods) {
+      const label = labelOf(soundRecipeOptions?.moods, id);
+      if (label) chips.push({ id: `feel-${id}`, label });
+    }
+    if (creativeSpec.tempo_feel) {
+      const label = labelOf(soundRecipeOptions?.tempo_feel, creativeSpec.tempo_feel);
+      if (label) chips.push({ id: "tempo", label });
+    }
+    if (creativeSpec.key && creativeSpec.key !== "auto") chips.push({ id: "key", label: creativeSpec.key });
+    if (creativeSpec.bpm) chips.push({ id: "bpm", label: `BPM ${creativeSpec.bpm}` });
+    for (const [field, list] of [
+      ["texture", soundRecipeOptions?.textures],
+      ["era", soundRecipeOptions?.eras],
+      ["meter", soundRecipeOptions?.meters],
+      ["vocal_gender", soundRecipeOptions?.vocal_genders],
+      ["vocal_style", soundRecipeOptions?.vocal_styles],
+      ["language", soundRecipeOptions?.languages],
+    ] as const) {
+      const id = creativeSpec[field];
+      if (!id) continue;
+      const label = labelOf(list, id);
+      if (label) chips.push({ id: field, label });
+    }
+    if (creativeSpec.custom_prompt_override?.trim()) chips.push({ id: "override", label: c.choicePromptEdited });
+    return chips;
+  }, [songWrite, songMode, presets, selectedPresetId, lyrics, diagnosisSummary, creativeSpec, soundRecipeOptions, locale, c]);
+
   const estimateMode = useMemo(() => {
-    if (mode === "quickTrack") return "single";
     if (mode === "playlist") return "playlist";
     if (mode === "variation") return "variation";
+    if (songWrite && takes === 2) return "twoTakes";
+    if (songWrite) return "single";
+    if (twoTakes) return "twoTakes";
     return mode;
-  }, [mode]);
+  }, [mode, songWrite, takes, twoTakes]);
 
   const creditCost = estimatedCredits;
-
-  const deckSteps = useMemo(
-    () =>
-      mode === "remix"
-        ? [
-            { num: "1", label: c.remixFlow.stepSource },
-            { num: "2", label: c.remixFlow.stepIntent },
-            { num: "3", label: c.remixFlow.stepGo },
-          ]
-        : [
-            { num: "1", label: c.homeDeckStep1 },
-            { num: "2", label: c.homeDeckStep2 },
-            { num: "3", label: c.homeDeckStep3 },
-          ],
-    [mode, c.homeDeckStep1, c.homeDeckStep2, c.homeDeckStep3, c.remixFlow.stepSource, c.remixFlow.stepIntent, c.remixFlow.stepGo]
-  );
+  const creditsShort = gateEnabled && creditsReady && (credits == null || credits < creditCost);
+  const creditsLoading = Boolean(isLoggedIn() && gateEnabled && (!creditsReady || checkinToday === null));
+  const creditsBlocked = creditsShort && checkinToday !== null && !creditsLoading;
 
   const remixReady = mode !== "remix" || (!!seedWorkId && textIntent.trim().length >= 3 && seedRemixAllowed);
 
   const jobBlocking = useMemo(() => {
     if (!activeJobId) return false;
     const ctxJob = activeJobCtx?.job;
-    if (ctxJob?.jobId === activeJobId) {
-      return !isTerminalJobStatus(ctxJob.status);
-    }
-    // Context cleared after completion — result card still visible, dock should unlock.
-    if (!ctxJob) return false;
+    if (ctxJob?.jobId === activeJobId && isTerminalJobStatus(ctxJob.status)) return false;
     return true;
   }, [activeJobId, activeJobCtx?.job]);
+
+  useEffect(() => {
+    if (!activeJobId) {
+      generateJobRef.current = null;
+      generateLatchRef.current = false;
+      return;
+    }
+    generateLatchRef.current = false;
+    generateIdempotencyRef.current = null;
+    const t = setTimeout(() => {
+      generateJobRef.current = null;
+    }, 0);
+    return () => clearTimeout(t);
+  }, [activeJobId]);
 
   useServerDraftSync(
     isLoggedIn() && !activeJobId,
@@ -227,16 +373,6 @@ export default function CreatePage() {
     bootstrapAuth();
     creditsCtx?.refresh();
     vibeApi.getPresets().then(setPresets).catch(() => {});
-    vibeApi
-      .getPlatformConfig()
-      .then((cfg) => {
-        if (cfg.studio.sound_recipe) setSoundRecipeOptions(cfg.studio.sound_recipe as SoundRecipeOptions);
-        if (cfg.studio.keys?.length) setKeyOptions(cfg.studio.keys);
-        if (cfg.studio.bpm_presets?.length) setBpmPresets(cfg.studio.bpm_presets);
-      })
-      .catch(() => {
-        vibeApi.getSoundRecipeOptions().then((opts) => setSoundRecipeOptions(opts as SoundRecipeOptions)).catch(() => {});
-      });
 
     const seed = getItem("create:seedWorkId");
     const seedMode = getItem("create:mode") as CreateMode | null;
@@ -247,12 +383,29 @@ export default function CreatePage() {
     const importSpecRaw = getItem("create:importSpec");
     if (importSpecRaw) {
       try {
-        setCreativeSpec({ ...emptyCreativeSpec(), ...JSON.parse(importSpecRaw) });
-        showSuccess(copy.marketplaceUi.purchaseSuccess);
+        const parsed = JSON.parse(importSpecRaw) as Record<string, unknown>;
+        const refId = parsed.reference_work_id ? String(parsed.reference_work_id) : "";
+        const { seed: _seed, reference_work_id: _ref, ...creative } = parsed;
+        setCreativeSpec({ ...emptyCreativeSpec(), ...creative });
+        if (refId) {
+          const resolved = resolveSeedMode("sameStyle");
+          setReferenceWorkId(refId);
+          setSeedWorkId(refId);
+          setMode(resolved.mode);
+          setCreateAction(resolved.action);
+        }
+        setAdvancedOpen(true);
+        setRecipeReady(true);
+        showSuccess(copy.marketplaceUi.recipeReady);
       } catch {
         /* ignore */
       }
       removeItem("create:importSpec");
+    }
+    if (getItem("create:recipeReady") === "1") {
+      setAdvancedOpen(true);
+      setRecipeReady(true);
+      removeItem("create:recipeReady");
     }
     if (creativeSpecFromCopilot) {
       try {
@@ -299,13 +452,32 @@ export default function CreatePage() {
       removeItem("create:targetBpm");
       removeItem("create:targetKey");
     }
-    if (seed) {
-      const resolvedMode = seedMode === "cover" ? "cover" : seedMode === "variation" ? "variation" : "remix";
+    if (seed && seedMode === "cover") {
+      removeItem("create:seedWorkId");
+      removeItem("create:mode");
+      removeItem("create:seedIntent");
+      removeItem("create:seedTitle");
+      removeItem("create:coverLyricLock");
+      showCoverUnavailable();
+    } else if (seed) {
+      const resolved = resolveSeedMode(seedMode);
       setSeedWorkId(seed);
-      setMode(resolvedMode);
+      setMode(resolved.mode);
+      setCreateAction(resolved.action);
+      if (resolved.action !== "compose") {
+        setReferenceWorkId(seed);
+      }
+      if (getItem("create:remelt") === "1") {
+        setRemeltPreferred(true);
+        removeItem("create:remelt");
+      }
+      if (getItem("create:coverLyricLock") === "1") {
+        setCoverLyricLock(true);
+        removeItem("create:coverLyricLock");
+      }
       if (seedIntent) {
         setTextIntent(seedIntent);
-      } else if (resolvedMode === "remix") {
+      } else if (resolved.mode === "remix") {
         setTextIntent(copy.derivative.remix.example);
       }
       const seedTitle = getItem("create:seedTitle");
@@ -342,6 +514,24 @@ export default function CreatePage() {
   }, [router.params.challenge, copy.derivative.remix.example]);
 
   useEffect(() => {
+    prefetchCoreChunks();
+  }, []);
+
+  useEffect(() => {
+    if (soundRecipeOptions || (!advancedOpen && !specNeedsLabels)) return;
+    vibeApi
+      .getPlatformConfig()
+      .then((cfg) => {
+        if (cfg.studio.sound_recipe) setSoundRecipeOptions(cfg.studio.sound_recipe as SoundRecipeOptions);
+        if (cfg.studio.keys?.length) setKeyOptions(cfg.studio.keys);
+        if (cfg.studio.bpm_presets?.length) setBpmPresets(cfg.studio.bpm_presets);
+      })
+      .catch(() => {
+        vibeApi.getSoundRecipeOptions().then((opts) => setSoundRecipeOptions(opts as SoundRecipeOptions)).catch(() => {});
+      });
+  }, [advancedOpen, soundRecipeOptions, specNeedsLabels]);
+
+  useEffect(() => {
     const timer = setTimeout(() => {
       setItem(STUDIO_CREATIVE_SPEC_KEY, JSON.stringify(creativeSpec));
     }, 400);
@@ -350,16 +540,32 @@ export default function CreatePage() {
 
   useDidShow(() => {
     const seed = getItem("create:seedWorkId");
-    if (seed) {
-      const seedMode = getItem("create:mode") as CreateMode | null;
+    if (seed && getItem("create:mode") === "cover") {
+      removeItem("create:seedWorkId");
+      removeItem("create:mode");
+      removeItem("create:seedIntent");
+      removeItem("create:seedTitle");
+      removeItem("create:coverLyricLock");
+      showCoverUnavailable();
+    } else if (seed) {
+      const seedMode = getItem("create:mode");
       const seedIntent = getItem("create:seedIntent");
-      const resolvedMode =
-        seedMode === "cover" ? "cover" : seedMode === "variation" ? "variation" : seedMode === "remix" ? "remix" : "variation";
+      const resolved = resolveSeedMode(seedMode);
       setSeedWorkId(seed);
-      setMode(resolvedMode);
+      setMode(resolved.mode);
+      setCreateAction(resolved.action);
+      if (resolved.action !== "compose") setReferenceWorkId(seed);
+      if (getItem("create:remelt") === "1") {
+        setRemeltPreferred(true);
+        removeItem("create:remelt");
+      }
+      if (getItem("create:coverLyricLock") === "1") {
+        setCoverLyricLock(true);
+        removeItem("create:coverLyricLock");
+      }
       if (seedIntent) {
         setTextIntent(seedIntent);
-      } else if (resolvedMode === "remix") {
+      } else if (resolved.mode === "remix") {
         setTextIntent(copy.derivative.remix.example);
       }
       const seedTitle = getItem("create:seedTitle");
@@ -370,40 +576,81 @@ export default function CreatePage() {
       removeItem("create:seedTitle");
     }
 
-    vibeApi.trackEvent("create_page_view", { logged_in: isLoggedIn() }).catch(() => {});
-    void creditsCtx?.refresh();
+    const showFresh = Date.now() - lastShowRefreshRef.current > 30_000;
+    if (showFresh) {
+      lastShowRefreshRef.current = Date.now();
+      void creditsCtx?.refresh();
+    }
+    if (deferredShowRef.current) clearTimeout(deferredShowRef.current);
+    deferredShowRef.current = setTimeout(() => {
+      vibeApi.trackEvent("create_page_view", { logged_in: isLoggedIn() }).catch(() => {});
+      if (isLoggedIn()) {
+        vibeApi
+          .getProgress()
+          .then((progress) => setCheckinToday(Boolean(progress.checked_in_today)))
+          .catch(() => setCheckinToday(true));
+      }
+    }, 1200);
+    if (!isLoggedIn()) {
+      setCheckinToday(null);
+    }
     if (activeJobId) return;
     const ctxJob = activeJobCtx?.job;
     if (ctxJob?.jobId && !isTerminalJobStatus(ctxJob.status)) {
+      if (ctxJob.jobType === "workbench" && ctxJob.returnUrl.includes("workbench")) {
+        openStackPage(ctxJob.returnUrl);
+        return;
+      }
       setActiveJobId(ctxJob.jobId);
       setActiveJobStartedAt(ctxJob.startedAt);
+      if (ctxJob.jobType) setActiveJobType(ctxJob.jobType);
       return;
     }
     resolveRestorableJobId().then((restored) => {
       if (!restored) return;
+      if (restored.jobType === "workbench" && restored.returnUrl.includes("workbench")) {
+        openStackPage(restored.returnUrl);
+        return;
+      }
       setActiveJobId(restored.jobId);
       setActiveJobStartedAt(restored.startedAt);
+      if (restored.jobType === "playlist" || restored.jobType === "variations" || restored.jobType === "remix") {
+        setActiveJobType(restored.jobType);
+      }
       if (restored.remixSource) {
         setActiveRemixSource(restored.remixSource);
         setMode("remix");
       }
     });
-    if (isLoggedIn()) {
-      vibeApi.getSubscription().then(setSubscription).catch(() => setSubscription(null));
+    if (isLoggedIn() && showFresh) {
       vibeApi
-        .listWorks()
+        .listWorks("newest", undefined, 12)
         .then((list) => {
           setWorksCount(list.length);
-          const latest = list[0];
-          setRecentWork(latest ? { id: latest.id, title: latest.title } : null);
+          const latest = list[0] as {
+            id: string;
+            title: string;
+            from_workbench?: boolean;
+            superseded_by_work_id?: string | null;
+          } | undefined;
+          setRecentWork(
+            latest
+              ? {
+                  id: latest.id,
+                  title: latest.title,
+                  from_workbench: latest.from_workbench,
+                  superseded_by_work_id: latest.superseded_by_work_id,
+                }
+              : null,
+          );
           setPickerWorks(list.slice(0, 12).map((w) => ({ id: w.id, title: w.title, cover_url: w.cover_url })));
         })
         .catch(() => {});
-    } else {
+      void loadDrafts();
+    } else if (!isLoggedIn()) {
       setWorksCount(0);
       setRecentWork(null);
     }
-    void loadDrafts();
 
     const copilotConfirm = getItem("create:copilotConfirm");
     const copilotEstimate = getItem("create:copilotEstimate");
@@ -439,62 +686,14 @@ export default function CreatePage() {
     };
   }, [seedWorkId, seedWorkTitle]);
 
-  const modeTiles = useMemo<ModeTileItem[]>(
-    () => [
-      { id: "quickTrack", icon: "music", title: c.modeQuickTrack, description: c.modeQuickTrackDesc },
-      { id: "playlist", icon: "playlist", title: c.modeQuickPlaylist, description: c.modeQuickPlaylistDesc, accent: true },
-      { id: "journey", icon: "journey", title: c.modeJourney, description: c.modeJourneyDesc },
-      { id: "remix", icon: "remix", title: c.modeRemix, description: c.modeRemixDesc },
-      { id: "cover", icon: "create", title: c.modeCover, description: c.modeCoverDesc },
-      { id: "variation", icon: "remix", title: c.modeVariation, description: c.modeVariationDesc },
-    ],
-    [
-      c.modeQuickTrack,
-      c.modeQuickTrackDesc,
-      c.modeQuickPlaylist,
-      c.modeQuickPlaylistDesc,
-      c.modeJourney,
-      c.modeJourneyDesc,
-      c.modeRemix,
-      c.modeRemixDesc,
-      c.modeCover,
-      c.modeCoverDesc,
-      c.modeVariation,
-      c.modeVariationDesc,
-    ]
-  );
-
-  const primaryModeTiles = useMemo(
-    () => modeTiles.filter((t) => t.id === "quickTrack" || t.id === "remix"),
-    [modeTiles]
-  );
-
-  const moreModeTiles = useMemo(
-    () => modeTiles.filter((t) => t.id !== "quickTrack" && t.id !== "remix"),
-    [modeTiles]
-  );
-
-  const createStepIndex = useMemo(() => {
-    if (mode === "remix") {
-      if (textIntent.trim().length >= 3 && seedWorkId && seedRemixAllowed) return 2;
-      if (textIntent.trim() || seedWorkId) return 1;
-      return 0;
-    }
-    const hasIntent = !!(textIntent.trim() || selectedPresetId || hasCreativeConstraints(creativeSpec));
-    return hasIntent ? 2 : 1;
-  }, [mode, textIntent, seedWorkId, seedRemixAllowed, selectedPresetId, creativeSpec]);
-
-  function handleModeSelect(id: string) {
-    if (id === "journey") {
-      openStackPage(STUDIO_PAGE_ROUTES.journey);
+  function handleModeSelect(id: CreateMode) {
+    if (id === "cover") {
+      showCoverUnavailable();
       return;
     }
-    setMode(id as CreateMode);
+    setMode(id);
+    setCreateAction("compose");
     setCoverStep("pick");
-    setMoreModesOpen(false);
-    if (id === "variation" || id === "cover") {
-      setAdvancedOpen(true);
-    }
     if (id === "remix" && !seedWorkId) {
       setTextIntent("");
     }
@@ -558,16 +757,16 @@ export default function CreatePage() {
     const map: Record<CreateMode, string> = {
       quickTrack: modes.quickTrack,
       playlist: modes.playlist || c.modeQuickPlaylist,
-      lyrics: modes.lyrics || "歌词创作",
+      lyrics: modes.lyrics || c.lyricsLabel,
       remix: modes.remix || "Remix",
-      cover: modes.cover || "翻唱",
-      variation: modes.variation || "变体实验",
+      cover: modes.cover || c.modeCover,
+      variation: modes.variation || c.modeVariation,
     };
     return map[m];
   }
 
   async function polishIntentAi() {
-    if (!requireAuth()) return;
+    if (!requireAuth(CREATE_NEXT)) return;
     const draft = textIntent.trim();
     if (draft.length < 3) {
       showError(c.polishNeedIntent);
@@ -586,7 +785,7 @@ export default function CreatePage() {
   }
 
   async function generateLyricsAi() {
-    if (!requireAuth()) return;
+    if (!requireAuth(CREATE_NEXT)) return;
     setGeneratingLyrics(true);
     try {
       const res = await vibeApi.generateLyrics(textIntent, [], "zh");
@@ -608,6 +807,21 @@ export default function CreatePage() {
     }
   }
 
+  async function reviseLyricsAi(instruction: string, lineIndex?: number) {
+    if (!requireAuth(CREATE_NEXT) || !lyrics.trim()) return;
+    setRevisingLyrics(true);
+    try {
+      const res = await vibeApi.reviseLyrics({ lyrics, instruction, line_index: lineIndex, language: "zh" });
+      if (res.lyrics) setLyrics(res.lyrics);
+      showSuccess(c.lyricsGenerated);
+    } catch (e) {
+      if (isInsufficientCredits(e)) handle402();
+      else showError(c.generateFail);
+    } finally {
+      setRevisingLyrics(false);
+    }
+  }
+
   async function coverPreprocess() {
     if (!seedWorkId) return;
     setSubmitting(true);
@@ -624,7 +838,7 @@ export default function CreatePage() {
   }
 
   async function saveDraft() {
-    if (!requireAuth()) return;
+    if (!requireAuth(CREATE_NEXT)) return;
     setSavingDraft(true);
     try {
       await vibeApi.saveDraft(textIntent.slice(0, 40) || "Draft", mode, {
@@ -661,7 +875,7 @@ export default function CreatePage() {
   }
 
   async function removeDraft(id: string) {
-    if (!requireAuth()) return;
+    if (!requireAuth(CREATE_NEXT)) return;
     try {
       await vibeApi.deleteDraft(id);
       setDrafts((prev) => prev.filter((d) => d.id !== id));
@@ -672,8 +886,12 @@ export default function CreatePage() {
   }
 
   async function generate() {
-    if (submitting || jobBlocking || generateLatchRef.current) return;
-    if (!requireAuth()) return;
+    if (mode === "cover") {
+      showCoverUnavailable();
+      return;
+    }
+    if (submitting || jobBlocking || generateLatchRef.current || generateJobRef.current || creditsLoading) return;
+    if (!requireAuth(CREATE_NEXT)) return;
     const cost = creditCost;
     if (!(await ensureSufficientCredits(creditsCtx, cost, () => handle402(cost)))) return;
     if (mode === "remix") {
@@ -689,7 +907,12 @@ export default function CreatePage() {
         showError(copy.derivative.remixNotAllowed);
         return;
       }
-    } else if (!textIntent.trim() && !selectedPresetId && !hasCreativeConstraints(creativeSpec)) {
+    } else if (
+      createAction === "compose" &&
+      !textIntent.trim() &&
+      !selectedPresetId &&
+      !hasCreativeConstraints(creativeSpec)
+    ) {
       showError(c.needIntent);
       return;
     }
@@ -734,7 +957,7 @@ export default function CreatePage() {
   }
 
   async function requestGenerate(titleOverride?: string) {
-    if (!requireAuth()) return;
+    if (!requireAuth(CREATE_NEXT)) return;
     try {
       const status = await fetchConsentStatus();
       if (status.missing.includes("ai_notice")) {
@@ -743,7 +966,9 @@ export default function CreatePage() {
         return;
       }
     } catch {
-      /* proceed if status check fails */
+      pendingGenerateTitleRef.current = titleOverride;
+      setAiDisclaimerOpen(true);
+      return;
     }
     await executeGenerate(titleOverride);
   }
@@ -763,16 +988,21 @@ export default function CreatePage() {
   }
 
   async function executeGenerate(titleOverride?: string) {
-    if (submitting || jobBlocking || generateLatchRef.current) return;
+    if (submitting || jobBlocking || generateLatchRef.current || generateJobRef.current) return;
+    generateLatchRef.current = true;
+    hapticLight();
     if (titleOverride !== undefined && titleOverride.trim()) {
       setWorkTitle(titleOverride.trim());
     }
     setTitleSheetOpen(false);
-    if (!(await ensureSufficientCredits(creditsCtx, creditCost, () => handle402(creditCost)))) return;
+    if (!(await ensureSufficientCredits(creditsCtx, creditCost, () => handle402(creditCost)))) {
+      generateLatchRef.current = false;
+      return;
+    }
     await requestGenerationSubscribeMessages();
-    generateLatchRef.current = true;
     setSubmitting(true);
-    const idempotencyKey = generateIdempotencyKey();
+    if (!generateIdempotencyRef.current) generateIdempotencyRef.current = generateIdempotencyKey();
+    const idempotencyKey = generateIdempotencyRef.current;
     vibeApi.trackEvent("studio_generate_start", { mode }).catch(() => {});
     trackActivationOnce("activation_first_generate_start", { mode });
     const fallback =
@@ -789,41 +1019,84 @@ export default function CreatePage() {
         : fallback;
     const resolvedTitle = resolveWorkTitle(titleOverride ?? workTitle, textIntent, remixFallback, titleSuggestOpts);
     const payloadSpec = buildPayloadSpec(creativeSpec, textIntent, lyricsStyleTags);
+    const resolvedSongMode = mode === "playlist" ? "instrumental" : mode === "lyrics" ? "lyrics" : songMode;
+    const generationFields = {
+      mode: resolvedSongMode,
+      freedom,
+      quality: songQuality,
+      quick: quickSong && resolvedSongMode === "auto_lyrics",
+      vocal: {
+        vocal_gender: creativeSpec.vocal_gender || "",
+        vocal_style: creativeSpec.vocal_style || "",
+        language: creativeSpec.language || "",
+      },
+    };
+    if ((resolvedSongMode === "lyrics" || mode === "lyrics") && !lyrics.trim()) {
+      showError(c.needLyrics);
+      generateLatchRef.current = false;
+      generateIdempotencyRef.current = null;
+      setSubmitting(false);
+      return;
+    }
+    if ((resolvedSongMode === "auto_lyrics" || resolvedSongMode === "instrumental") && !textIntent.trim() && !creativeSpec.custom_prompt_override?.trim()) {
+      showError(resolvedSongMode === "instrumental" ? c.needMusicLine : c.needLine);
+      generateLatchRef.current = false;
+      generateIdempotencyRef.current = null;
+      setSubmitting(false);
+      return;
+    }
     let jobId: string | undefined;
     let resolvedJobType: "single" | "playlist" | "variations" | "remix" = "single";
     let creditsPayload: CreditsApiPayload | undefined;
     try {
-      if (mode === "quickTrack") {
-        const singlePayload: Parameters<typeof vibeApi.generateSingle>[0] = {
+      if (songWrite && takes === 1 && createAction === "compose") {
+        const job = await vibeApi.generateSingle({
           text_intent: textIntent,
-          instrumental: !lyrics.trim(),
+          seed_work_id: seedWorkId || undefined,
           title: resolvedTitle,
+          instrumental: resolvedSongMode === "instrumental",
+          lyrics: resolvedSongMode === "instrumental" ? undefined : lyrics.trim() || undefined,
+          style_tags: lyricsStyleTags.trim() || undefined,
           creative_spec: payloadSpec,
           moods: payloadSpec.moods,
           genres: payloadSpec.genres,
           bpm: payloadSpec.bpm ?? undefined,
           key: payloadSpec.key !== "auto" ? payloadSpec.key : undefined,
-          preview_pick_count: 1,
-        };
-        if (lyrics.trim()) {
-          singlePayload.lyrics = lyrics.trim();
-          singlePayload.instrumental = false;
-        }
-        if (lyricsStyleTags.trim()) {
-          singlePayload.style_tags = lyricsStyleTags.trim();
-        }
-        if (referenceWorkId) {
-          singlePayload.reference = {
-            work_id: referenceWorkId,
-            av_offset:
-              referenceAvOffset.arousal || referenceAvOffset.valence
-                ? referenceAvOffset
-                : undefined,
-          };
-        }
-        const job = await vibeApi.generateSingle({ ...singlePayload, idempotencyKey });
+          ...generationFields,
+          idempotencyKey,
+        });
         jobId = job.id;
-        resolvedJobType = job.job_type === "variations" ? "variations" : "single";
+        resolvedJobType = "single";
+        creditsPayload = job;
+      } else if (twoTakes) {
+        const job = await vibeApi.generateVariations({
+          text_intent: textIntent,
+          seed_work_id: seedWorkId || undefined,
+          title: resolvedTitle,
+          count: songWrite ? takes : 2,
+          instrumental: resolvedSongMode === "instrumental",
+          lyrics: resolvedSongMode === "instrumental" ? undefined : lyrics.trim() || undefined,
+          style_tags: lyricsStyleTags.trim() || undefined,
+          creative_spec: payloadSpec,
+          moods: payloadSpec.moods,
+          genres: payloadSpec.genres,
+          bpm: payloadSpec.bpm ?? undefined,
+          key: payloadSpec.key !== "auto" ? payloadSpec.key : undefined,
+          remelt: remeltPreferred || createAction === "regenerate",
+          ...generationFields,
+          reference: referenceWorkId
+            ? {
+                work_id: referenceWorkId,
+                av_offset:
+                  referenceAvOffset.arousal || referenceAvOffset.valence
+                    ? referenceAvOffset
+                    : undefined,
+              }
+            : undefined,
+          idempotencyKey,
+        });
+        jobId = job.id;
+        resolvedJobType = "variations";
         creditsPayload = job;
       } else if (mode === "playlist") {
         let journey = {
@@ -868,36 +1141,19 @@ export default function CreatePage() {
         jobId = job.id;
         resolvedJobType = "playlist";
         creditsPayload = job;
-      } else if (mode === "lyrics") {
-        if (!lyrics.trim()) {
-          showError(c.needLyrics);
-          return;
-        }
-        const job = await vibeApi.generateSingle({
-          text_intent: textIntent,
-          lyrics: lyrics.trim(),
-          style_tags: lyricsStyleTags.trim() || undefined,
-          song_title: workTitle.trim() || undefined,
-          instrumental: false,
-          title: resolvedTitle,
-          creative_spec: payloadSpec,
-          moods: payloadSpec.moods,
-          genres: payloadSpec.genres,
-          preview_pick_count: 1,
-          idempotencyKey,
-        });
-        jobId = job.id;
-        resolvedJobType = job.job_type === "variations" ? "variations" : "single";
-        creditsPayload = job;
       } else if (mode === "remix" && seedWorkId) {
         const res = await vibeApi.remix(seedWorkId, textIntent, { title: resolvedTitle, idempotencyKey });
         jobId = res.job_id;
         resolvedJobType = "remix";
         creditsPayload = res;
       } else if (mode === "cover" && seedWorkId) {
-        const res = await vibeApi.musicCover(seedWorkId, textIntent, {
+        const coverPrompt = coverLyricLock
+          ? `${textIntent} Keep original lyrics and melody structure; change vocal timbre only.`
+          : textIntent;
+        const res = await vibeApi.musicCover(seedWorkId, coverPrompt, {
           cover_mode: "two_step",
           modified_lyrics: coverLyrics || undefined,
+          style_lock: coverLyricLock,
           idempotencyKey,
         });
         jobId = res.job_id;
@@ -907,6 +1163,7 @@ export default function CreatePage() {
           seed_work_id: seedWorkId,
           text_intent: textIntent,
           title: resolvedTitle,
+          count: 3,
           idempotencyKey,
         });
         jobId = job.id;
@@ -922,12 +1179,13 @@ export default function CreatePage() {
           title: copy.generationErrors.ACTIVE_JOB_LIMIT.title,
           content: copy.generationErrors.ACTIVE_JOB_LIMIT.body,
           confirmText: copy.generation.viewActiveJob,
-          cancelText: copy.common?.cancel || "取消",
+          cancelText: copy.actions.cancel,
         });
         if (modal.confirm) {
           try {
             const active = await vibeApi.getActiveJob();
             if (active?.id) {
+              generateJobRef.current = active.id;
               setActiveJobId(active.id);
               setActiveJobType((active.job_type as typeof resolvedJobType) || "single");
             }
@@ -961,7 +1219,11 @@ export default function CreatePage() {
       showError(c.generateFail);
       return;
     } finally {
-      generateLatchRef.current = false;
+      if (jobId) generateJobRef.current = jobId;
+      if (!jobId) {
+        generateLatchRef.current = false;
+        generateIdempotencyRef.current = null;
+      }
       setSubmitting(false);
     }
 
@@ -983,7 +1245,8 @@ export default function CreatePage() {
       jobType,
       remixSourceTitle: remixSource?.title,
     });
-    setActiveJobId(jobId);
+      setProgressOpen(true);
+      setActiveJobId(jobId);
     setActiveJobType(jobType);
     setActiveJobStartedAt(startedAt);
     if (remixSource) setActiveRemixSource(remixSource);
@@ -1003,14 +1266,36 @@ export default function CreatePage() {
   }
 
   const needsSeed = mode === "cover" || mode === "variation";
-  const dockCta =
-    creditsBlocked
-      ? c.dockTopUp
-      : mode === "cover" && coverStep === "preprocess"
-        ? c.coverPreprocess
-        : mode === "cover" && coverStep === "generate"
-          ? c.coverStepGenerate
-          : c.dockGenerate;
+  const offerCheckin = Boolean(isLoggedIn() && creditsShort && checkinToday === false);
+  const dockCta = !isLoggedIn()
+    ? c.dockLogin
+    : creditsLoading
+      ? c.dockCreditsLoading
+      : offerCheckin
+      ? c.dockCheckin
+      : creditsBlocked
+        ? c.dockTopUp
+        : mode === "cover" && coverStep === "preprocess"
+          ? c.coverPreprocess
+          : mode === "cover" && coverStep === "generate"
+            ? c.coverStepGenerate
+            : c.dockGenerate;
+
+  async function claimDailyCheckin() {
+    if (checkingIn) return;
+    setCheckingIn(true);
+    try {
+      const res = await vibeApi.dailyCheckin();
+      creditsCtx?.setBalance(res.balance);
+      setCheckinToday(true);
+      showSuccess(copy.progressUi.checkinSuccess);
+      await creditsCtx?.refresh();
+    } catch {
+      Taro.showToast({ title: copy.progressUi.checkinFail, icon: "none" });
+    } finally {
+      setCheckingIn(false);
+    }
+  }
 
   const titleFallback =
     mode === "playlist"
@@ -1024,6 +1309,21 @@ export default function CreatePage() {
     mode === "remix" && seedWorkTitle.trim()
       ? `${c.remixFlow.defaultTitle} · ${seedWorkTitle.trim()}`.slice(0, 60)
       : resolveWorkTitle("", textIntent, titleFallback, titleSuggestOpts);
+  /** Same-style / remelt / cover / variation / remix: banner + spell + dock — no mode wall. */
+  const followAlong =
+    createAction !== "compose" || mode === "cover" || mode === "variation" || mode === "remix";
+  const followBanner =
+    createAction === "sameStyle"
+      ? c.sameStyleBanner
+      : createAction === "regenerate"
+        ? c.regenerateBanner
+        : mode === "cover"
+          ? c.coverBanner
+          : mode === "variation"
+            ? c.variationBanner
+            : mode === "remix"
+              ? c.remixBanner
+              : "";
 
   return (
     <PageShell
@@ -1036,138 +1336,70 @@ export default function CreatePage() {
       noPadTop
       hideHeader
     >
-      <View className={`tab-page create-home${activeJobId ? " create-home--generating" : ""}${coachOpen ? " create-home--coach-open" : ""}`}>
-        {isLoggedIn() && <CommercialAlertBanners subscription={subscription} />}
-        {!activeJobId && (
-        <View className="create-home__form">
-        <View className="create-home__deck">
-          <View className="create-home__deck-glow" />
-          <View className="create-home__deck-head">
-            <View className="create-home__deck-brand">
-              <View className="create-home__deck-sigil">
-                <View className="create-home__deck-wave" aria-hidden>
-                  <View className="create-home__deck-wave-bar" />
-                  <View className="create-home__deck-wave-bar" />
-                  <View className="create-home__deck-wave-bar" />
-                  <View className="create-home__deck-wave-bar" />
-                </View>
-              </View>
-              <View>
-                <Text className="create-home__deck-title">{copy.pages.create.title}</Text>
-                {worksCount > 0 && (
-                  <Text className="create-home__deck-sub">{c.homeDeckWorksCount.replace("{n}", String(worksCount))}</Text>
-                )}
-              </View>
-            </View>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="create-home__draft-btn"
-              onClick={() => {
-                void loadDrafts();
-                setDraftsOpen(true);
-              }}
-            >
-              {c.draftEntry}
-            </Button>
-          </View>
-
-          {(credits != null || creditsCtx?.loading) && isLoggedIn() && (
-            <View
-              className="create-home__deck-meter"
-              onClick={() => {
-                vibeApi.trackEvent("create_credits_chip_tap", { balance: credits ?? 0 }).catch(() => {});
-                openPaywall({ source: "create_deck", tab: "pack" });
-              }}
-            >
-              <View className="create-home__deck-meter-top">
-                <Text className="create-home__deck-credits">
-                  {credits != null ? c.homeDeckCredits.replace("{n}", String(credits)) : "…"}
-                </Text>
-                <Text className="create-home__deck-recharge">{copy.profileUi.recharge}</Text>
-              </View>
-              <View className="create-home__deck-bar">
-                <View
-                  className="create-home__deck-bar-fill"
-                  style={{ width: `${Math.min(100, Math.max(8, credits * 12))}%` }}
-                />
-              </View>
-            </View>
-          )}
-
-          <View className="create-home__deck-steps">
-            {deckSteps.map((step, i) => (
-              <View key={step.num} className="create-home__deck-step">
-                {i > 0 && <View className="create-home__deck-step-line" />}
-                <View className="create-home__deck-step-node">
-                  <Text className="create-home__deck-step-num">{step.num}</Text>
-                </View>
-                <Text className="create-home__deck-step-label">{step.label}</Text>
-              </View>
-            ))}
-          </View>
-
-          <View className="create-home__deck-actions">
-            {recentWork && (
-              <View className="create-home__deck-chip create-home__deck-chip--accent" onClick={() => openWorkDetail(recentWork.id)}>
-                <Icon name="play" size="sm" accent />
-                <Text className="create-home__deck-chip-text">{c.homeDeckRecent.replace("{title}", recentWork.title)}</Text>
-              </View>
-            )}
-            <View className="create-home__deck-chip" onClick={() => Taro.navigateTo({ url: STACK_PAGE_ROUTES.works })}>
-              <Icon name="music" size="sm" />
-              <Text className="create-home__deck-chip-text">{c.homeDeckMyWorks}</Text>
-            </View>
-            <View className="create-home__deck-chip" onClick={() => openStackPage(STUDIO_PAGE_ROUTES.journey)}>
-              <Icon name="journey" size="sm" accent />
-              <Text className="create-home__deck-chip-text">{c.homeDeckJourney}</Text>
-            </View>
-          </View>
+      <View className={`tab-page create-home${jobBlocking ? " create-home--generating" : ""}${activeJobId && !jobBlocking ? " create-home--review" : ""}${coachOpen ? " create-home--coach-open" : ""}${coachOpen && coachAnchor ? ` create-home--coach-${coachAnchor}` : ""}${!isLoggedIn() ? " create-home--guest" : ""}`}>
+        <View className="create-appbar">
+          <Text className="create-appbar__brand">{copy.pages.create.title}</Text>
+          <Text className="create-appbar__credits" onClick={() => isLoggedIn() && openPaywall({ source: "create_appbar", tab: "pack" })}>
+            {isLoggedIn() ? c.homeDeckCredits.replace("{n}", String(credits ?? "—")) : copy.profileUi.loginButton}
+          </Text>
+          <Text className="create-appbar__me" onClick={() => (isLoggedIn() ? Taro.switchTab({ url: "/pages/profile/index" }) : requireAuth(CREATE_NEXT))}>
+            {isLoggedIn() ? "我" : copy.profileUi.loginButton}
+          </Text>
         </View>
-
-        {mode !== "remix" && soundRecipeOptions && (
-          <Suspense fallback={<LoadingSkeleton count={1} />}>
-            <SoundRecipePanel
-              spec={creativeSpec}
-              options={soundRecipeOptions}
-              keyOptions={keyOptions}
-              bpmPresets={bpmPresets}
-              onChange={(next) => setCreativeSpec({ ...next, custom_prompt_override: "" })}
-            />
-          </Suspense>
-        )}
-
-        {mode !== "remix" && diagnosisOpen && !activeJobId && (mode === "quickTrack" || mode === "lyrics") && (
-          <Suspense fallback={null}>
-            <EmotionDiagnosisCard
-            onApply={({ arousal, valence, intentHint, genres, summary }) => {
-              setCreativeSpec((prev) => ({
-                ...prev,
-                arousal,
-                valence,
-                genres: prev.genres.length ? prev.genres : genres,
-              }));
-              if (!textIntent.trim() || textIntent === c.defaultIntent) setTextIntent(intentHint);
-              setDiagnosisSummary(summary);
-              setDiagnosisOpen(false);
+        {isLoggedIn() && <CommercialAlertBanners subscription={subscription} />}
+        <LaunchHonestyBanner surface="create" />
+        {!isLoggedIn() && (
+          <View
+            className="create-home__guest-banner"
+            hoverClass="none"
+            onClick={() => {
+              hapticLight();
+              requireAuth(CREATE_NEXT);
             }}
-            onDismiss={() => setDiagnosisOpen(false)}
-          />
-          </Suspense>
+          >
+            <Text className="create-home__guest-hint">{c.authBanner}</Text>
+            <Text className="create-home__guest-login">{copy.profileUi.loginButton}</Text>
+          </View>
+        )}
+        <View className="create-home__form">
+
+        {followAlong && (seedWorkTitle || followBanner) && (
+          <View className="create-home__same-banner">
+            <Text className="create-home__same-banner-text">
+              {(followBanner || c.sameStyleBanner).replace("{title}", seedWorkTitle || "…")}
+            </Text>
+          </View>
+        )}
+        {recipeReady && !followAlong && (
+          <View className="create-home__same-banner">
+            <Text className="create-home__same-banner-text">{copy.marketplaceUi.recipeReady}</Text>
+          </View>
         )}
 
-        {mode !== "remix" && !diagnosisOpen && diagnosisSummary && !activeJobId && (mode === "quickTrack" || mode === "lyrics") && (
-          <View className="create-home__diagnosis-echo" onClick={() => setDiagnosisOpen(true)}>
-            <Text className="create-home__diagnosis-echo-text">{diagnosisSummary}</Text>
-            <Text className="create-home__diagnosis-echo-edit">{c.diagnosisReopen}</Text>
+        {followAlong && needsSeed && (
+          <View className="create-home__section create-home__section--seed">
+            <Suspense fallback={<LoadingSkeleton count={1} />}>
+              <WorkPicker
+                value={seedWorkId}
+                authNext={CREATE_NEXT}
+                onChange={(id, title) => {
+                  setSeedWorkId(id);
+                  setSeedWorkTitle(title || "");
+                  if (title) setItem("create:seedTitle", title);
+                  setCoverStep("pick");
+                }}
+              />
+            </Suspense>
           </View>
         )}
 
         {mode !== "remix" && (
+          <View className="create-home__prompt coach-anchor-prompt">
+          <Suspense fallback={<LoadingSkeleton count={2} />}>
           <CreateFormulaPanel
             intentLabel={c.homePromptLabel}
             intentHint={c.homePromptHint}
-            intentPlaceholder={c.defaultIntent}
+            intentPlaceholder={c.oneBoxPlaceholder}
             textIntent={textIntent}
             onTextIntentChange={(v) => {
               setTextIntent(v);
@@ -1178,41 +1410,142 @@ export default function CreatePage() {
             polishLabel={c.polishIntent}
             polishingLabel={c.polishingIntent}
             polishing={polishingIntent}
-            onPolish={polishIntentAi}
-            onIntentBlur={parseIntentOnBlur}
-            intentTip={!seedWorkId && mode !== "cover" ? c.intentFirstHint : undefined}
-            maxlength={500}
+            onPolish={followAlong ? undefined : polishIntentAi}
+            onIntentBlur={followAlong ? undefined : parseIntentOnBlur}
+            maxlength={2000}
+            draftLabel={followAlong ? undefined : c.draftEntry}
+            onDraft={
+              followAlong
+                ? undefined
+                : () => {
+                    if (!requireAuth(CREATE_NEXT)) return;
+                    void loadDrafts();
+                    setDraftsOpen(true);
+                  }
+            }
+            adjustLabel={followAlong ? undefined : c.choiceAdjust}
+            onAdjust={followAlong ? undefined : () => setAdvancedOpen(true)}
+            choicesLabel={followAlong ? undefined : c.choiceThis}
+            choices={followAlong || jobBlocking ? undefined : choiceChips}
+            onChoice={() => setAdvancedOpen(true)}
           />
+          </Suspense>
+          </View>
         )}
 
-        {mode !== "remix" && soundRecipeOptions && (
-          <PromptPreviewBar
-            spec={creativeSpec}
-            textIntent={textIntent}
-            styleTags={lyricsStyleTags}
-            onOverrideChange={(override) => setCreativeSpec((prev) => ({ ...prev, custom_prompt_override: override }))}
-          />
+        {songWrite && !followAlong && !jobBlocking && (
+          <View className="create-home__write">
+            <Suspense fallback={<LoadingSkeleton count={1} />}>
+              <SongSetupBar
+                modesOnly
+                songMode={songMode}
+                freedom={freedom}
+                takes={takes}
+                quality={songQuality}
+                quick={quickSong}
+                onSongMode={setSongMode}
+                onFreedom={setFreedom}
+                onTakes={setTakes}
+                onQuality={setSongQuality}
+                onQuick={setQuickSong}
+              />
+            </Suspense>
+          </View>
         )}
 
-        <View className="create-home__section">
-          <StepRail
-            className="create-home__steps"
-            steps={[
-              { id: "mode", label: c.homeDeckStep2, icon: "create" },
-              { id: "intent", label: c.homeDeckStep1, icon: "sigil" },
-              { id: "generate", label: c.homeDeckStep3, icon: "music" },
-            ]}
-            current={createStepIndex}
-          />
-          <SectionLabel>{c.modeSectionLabel}</SectionLabel>
-          <ModeTileGrid items={primaryModeTiles} activeId={mode} layout="rail" onSelect={handleModeSelect} />
-          <Button variant="ghost" size="sm" block className="create-home__more-modes" onClick={() => setMoreModesOpen(true)}>
-            {c.moreModesLabel}
-          </Button>
-        </View>
+        {!followAlong && !jobBlocking && mode !== "remix" && mode !== "cover" && mode !== "variation" && (
+          <View className="create-home__write">
+            <Suspense fallback={<LoadingSkeleton count={2} />}>
+              <PresetCarousel
+                compact
+                className="create-home__presets"
+                presets={presets}
+                selectedId={selectedPresetId}
+                onSelect={selectPreset}
+                isMember={creditsCtx?.isMember}
+                onMemberGate={() => {
+                  vibeApi.trackEvent("member_preset_gate", { preset_id: selectedPresetId }).catch(() => {});
+                  if (worksCount === 0) {
+                    showError(c.memberPresetLater);
+                    return;
+                  }
+                  openPaywall({ source: "create_member_preset", tab: "member" });
+                }}
+              />
+            </Suspense>
+          </View>
+        )}
 
-        {mode === "remix" && (
+        {songWrite && songMode !== "instrumental" && (songMode === "lyrics" || mode === "lyrics" || lyrics.trim()) && !followAlong && !jobBlocking && (
+          <Suspense fallback={<LoadingSkeleton count={2} />}>
+            <LyricsStructureEditor
+              lyrics={lyrics}
+              onChange={setLyrics}
+              onGenerate={generateLyricsAi}
+              generating={generatingLyrics}
+              revising={revisingLyrics}
+              onReviseSection={(instruction, index) => reviseLyricsAi(instruction, index)}
+            />
+          </Suspense>
+        )}
+
+        {!followAlong && !jobBlocking && recentWork ? (
+          <View className="create-home__song">
+            <Text className="create-shelf__title">{c.continueTitle}</Text>
+            <Text className="create-home__song-title">{recentWork.title}</Text>
+            <Text
+              className="create-home__song-play"
+              onClick={() => {
+                void vibeApi.getWork(recentWork.id).then((work) => {
+                  playTrack(workToPlayerTrack(work, { source: "library", isOwner: true }), { navigate: false });
+                });
+              }}
+            >
+              {c.recentListen}
+            </Text>
+            <Text
+              className="create-home__song-next"
+              onClick={() => {
+                if (!requireAuth(CREATE_NEXT)) return;
+                if (needsBeautifyMaster(recentWork)) {
+                  openWorkbench(recentWork.id);
+                  return;
+                }
+                goShipBand(recentWork.superseded_by_work_id || recentWork.id);
+              }}
+            >
+              {needsBeautifyMaster(recentWork)
+                ? copy.generation.reveal.beautify
+                : copy.generation.reveal.releaseThisVersion}
+            </Text>
+          </View>
+        ) : null}
+
+        {!followAlong && !jobBlocking && pickerWorks.length > 0 ? (
+          <View className="create-shelf">
+            <Text className="create-shelf__title">{c.myWorks}</Text>
+            <View className="create-shelf__row">
+              {pickerWorks.slice(0, 8).map((work) => (
+                <View
+                  key={work.id}
+                  className="create-shelf__card"
+                  onClick={() => {
+                    void vibeApi.getWork(work.id).then((full) => {
+                      playTrack(workToPlayerTrack(full, { source: "library", isOwner: true }), { navigate: false });
+                    });
+                  }}
+                >
+                  {work.cover_url ? <Image className="create-shelf__cover" src={work.cover_url} mode="aspectFill" /> : <View className="create-shelf__cover" />}
+                  <Text className="create-shelf__name">{work.title}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        ) : null}
+
+        {mode === "remix" && !jobBlocking && (
           <View className="create-home__section create-home__section--remix">
+            {!seedWorkId ? <Text className="typo-meta">{c.needSeed}</Text> : null}
             <Suspense fallback={<LoadingSkeleton count={2} />}>
               <RemixFlowPanel
               sourceWorkId={seedWorkId}
@@ -1233,106 +1566,76 @@ export default function CreatePage() {
           </View>
         )}
 
-        {mode !== "remix" && (
-          <View className="create-home__section create-home__section--presets">
-            <SectionLabel>{c.presetLabel}</SectionLabel>
-            <Suspense fallback={<LoadingSkeleton count={2} />}>
-              <PresetCarousel
-              className="create-home__presets"
-              presets={presets}
-              selectedId={selectedPresetId}
-              onSelect={selectPreset}
-              isMember={creditsCtx?.isMember}
-              onMemberGate={() => {
-                vibeApi.trackEvent("member_preset_gate", { preset_id: selectedPresetId }).catch(() => {});
-                openPaywall({ source: "create_member_preset", tab: "member" });
-              }}
-            />
-            </Suspense>
-          </View>
-        )}
-
         </View>
-        )}
-
-        {activeJobId && (
+        {activeJobId && progressOpen && (
+          <View className="create-stage">
+            <Text className="create-stage__leave" onClick={() => setProgressOpen(false)}>{c.leaveGeneration}</Text>
+          <Suspense fallback={<LoadingSkeleton count={3} />}>
             <GenerationProgress
               jobId={activeJobId}
               returnUrl="/pages/create/index"
               startedAt={activeJobStartedAt}
               jobType={activeJobType}
               remixSource={activeRemixSource ?? undefined}
+              onComplete={(result) => {
+                const id = result.workIds?.[0];
+                if (!id) return;
+                setCompletedWorkId(id);
+                setWorksCount((n) => Math.max(n, result.workIds?.length || 1));
+              }}
               onRetry={() => {
+                setRemeltPreferred(true);
+                generateJobRef.current = null;
+                generateLatchRef.current = false;
                 setActiveJobId(null);
                 void generate();
               }}
               onEditIntent={() => {
+                generateJobRef.current = null;
+                generateLatchRef.current = false;
                 setActiveJobId(null);
                 activeJobCtx?.setJob(null);
                 clearActiveGeneration();
               }}
             />
-        )}
-
-        {!activeJobId && isLoggedIn() && (
-          <View className="create-home__engagement">
-            <Suspense fallback={null}>
-              <LazyEngagementPanel variant="compact" showHeader={false} />
-            </Suspense>
+          </Suspense>
           </View>
         )}
+        {activeJobId && !progressOpen ? (
+          <View className="create-stage__bar" onClick={() => setProgressOpen(true)}>
+            <Text>{copy.generation.stillWorking}</Text>
+          </View>
+        ) : null}
 
-        {!activeJobId && (
+        {!jobBlocking && (
         <View className="create-home__dock">
-          <View className="create-home__dock-glow" />
+          {isLoggedIn() ? <View className="create-home__dock-glow" /> : null}
           <View className="create-home__dock-inner">
-            <CreditEstimateMeter
-              mode={estimateMode}
-              variations={mode === "variation" ? 3 : undefined}
-              onCreditsChange={setEstimatedCredits}
-              onLowCreditsClick={() => openPaywall({ source: "create_estimate", tab: "pack" })}
-              showShortfall
-              silent
-            />
-            <View className="create-home__dock-top">
-              <View className="create-home__dock-left">
-                <View className="create-home__mode-pill">
-                  <Text className="create-home__mode">{modeLabel(mode)}</Text>
-                </View>
-                <View className="create-home__advanced" onClick={() => setAdvancedOpen(true)}>
-                  <Text className="create-home__advanced-text">{c.advancedShort}</Text>
-                  <Icon name="chevronDown" size="sm" accent />
-                </View>
-                {creditsCtx?.isMember && (
-                  <View className="create-home__member-tag">
-                    <Text className="create-home__member-tag-text">{c.dockMemberBadge}</Text>
-                  </View>
-                )}
-              </View>
-              <View
-                className={`create-home__balance${credits != null && credits < creditCost ? " create-home__balance--low" : ""}`}
-                onClick={() => openPaywall({ source: "create_dock", tab: "pack" })}
-              >
-                <Text className="create-home__balance-num">{credits ?? "—"}</Text>
-                <Text className="create-home__balance-label">{c.dockBalance}</Text>
-              </View>
-            </View>
-            {!creditsCtx?.isMember && (
-              <Text
-                className="create-home__dock-nudge"
-                onClick={() => openPaywall({ source: "create_dock", tab: "member" })}
-              >
-                {c.dockMemberNudge}
+            {isLoggedIn() ? (
+              <CreditEstimateMeter
+                mode={estimateMode}
+                variations={twoTakes ? undefined : mode === "variation" ? 3 : undefined}
+                onCreditsChange={setEstimatedCredits}
+                silent
+                showShortfall={false}
+              />
+            ) : null}
+            {isLoggedIn() ? (
+              <Text className="create-home__dock-cost typo-meta">
+                {c.homeDeckCredits.replace("{n}", String(credits ?? "—"))}
               </Text>
-            )}
+            ) : null}
             <Button
+              className="create-home__generate coach-anchor-generate"
               variant="primary"
               block
-              loading={submitting || jobBlocking}
-              disabled={creditsBlocked ? false : !remixReady}
+              loading={submitting || jobBlocking || checkingIn || creditsLoading}
+              disabled={creditsBlocked || offerCheckin || creditsLoading || !isLoggedIn() ? false : !remixReady}
               onClick={() => {
-                if (!isLoggedIn()) {
-                  requireAuth();
+                if (!requireAuth(CREATE_NEXT)) return;
+                if (creditsLoading) return;
+                if (offerCheckin) {
+                  void claimDailyCheckin();
                   return;
                 }
                 if (creditsBlocked) {
@@ -1344,42 +1647,95 @@ export default function CreatePage() {
             >
               {dockCta}
             </Button>
-            {!creditsBlocked && creditCost > 1 && (
-              <Text className="create-home__dock-cost typo-meta">
-                {c.dockCostHint.replace("{n}", String(creditCost))}
-              </Text>
-            )}
-            <Text className="create-home__ai-note typo-meta">
-              {copy.legalUi.aiGeneratedNotice}
-            </Text>
           </View>
         </View>
         )}
       </View>
 
-      <CoachMarks page="create" onVisibilityChange={setCoachOpen} suppressed={!!activeJobId || submitting} />
-
-      <BottomSheet open={moreModesOpen} title={c.moreModesLabel} onClose={() => setMoreModesOpen(false)}>
-        <ModeTileGrid items={moreModeTiles} activeId={mode} layout="grid" onSelect={handleModeSelect} />
-      </BottomSheet>
+      <CoachMarks page="create" onVisibilityChange={onCoachVisibility} suppressed={jobBlocking || submitting || aiDisclaimerOpen} />
 
       <BottomSheet
         open={advancedOpen}
-        title={c.advancedSheetTitle}
+        title={c.moreSheetTitle}
         onClose={() => setAdvancedOpen(false)}
         footer={
           <View className="create-home__sheet-footer">
             <Button variant="secondary" size="sm" block loading={savingDraft} onClick={saveDraft}>
               {c.saveDraft}
             </Button>
-            <Button variant="primary" size="sm" block onClick={openCopilot}>
-              {c.copilotLink}
-            </Button>
           </View>
         }
       >
-        <CreateModePicker value={mode} onChange={(next) => { setMode(next); setCoverStep("pick"); }} />
+        <CreateModePicker
+          value={mode}
+          hasWorks={worksCount > 0}
+          onChange={(next) => handleModeSelect(next)}
+          onJourney={() => {
+            setAdvancedOpen(false);
+            openStackPage(STUDIO_PAGE_ROUTES.journey);
+          }}
+        />
+        {mode !== "remix" && soundRecipeOptions && (
+          <Suspense fallback={<LoadingSkeleton count={1} />}>
+            <SoundRecipePanel
+              spec={creativeSpec}
+              options={soundRecipeOptions}
+              keyOptions={keyOptions}
+              bpmPresets={bpmPresets}
+              onChange={(next) => setCreativeSpec({ ...next, custom_prompt_override: "" })}
+            />
+          </Suspense>
+        )}
+        {mode !== "remix" && mode !== "lyrics" && !lyrics.trim() && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="create-home__lyrics-door"
+            onClick={() => {
+              setMode("lyrics");
+              setCreateAction("compose");
+              setSongMode("lyrics");
+            }}
+          >
+            {c.addLyrics}
+          </Button>
+        )}
+        {mode !== "remix" && diagnosisOpen && !activeJobId && (mode === "quickTrack" || mode === "lyrics") && (
+          <Suspense fallback={null}>
+            <EmotionDiagnosisCard
+              onApply={({ arousal, valence, intentHint, genres, summary }) => {
+                setCreativeSpec((prev) => ({
+                  ...prev,
+                  arousal,
+                  valence,
+                  genres: prev.genres.length ? prev.genres : genres,
+                }));
+                if (!textIntent.trim() || textIntent === c.defaultIntent) setTextIntent(intentHint);
+                setDiagnosisSummary(summary);
+                setDiagnosisOpen(false);
+              }}
+              onDismiss={() => setDiagnosisOpen(false)}
+            />
+          </Suspense>
+        )}
+        {mode !== "remix" && !diagnosisOpen && diagnosisSummary && !activeJobId && (mode === "quickTrack" || mode === "lyrics") && (
+          <View className="create-home__diagnosis-echo" onClick={() => setDiagnosisOpen(true)}>
+            <Text className="create-home__diagnosis-echo-text">{diagnosisSummary}</Text>
+            <Text className="create-home__diagnosis-echo-edit">{c.diagnosisReopen}</Text>
+          </View>
+        )}
+        {mode !== "remix" && soundRecipeOptions && (
+          <Suspense fallback={null}>
+            <PromptPreviewBar
+              spec={creativeSpec}
+              textIntent={textIntent}
+              styleTags={lyricsStyleTags}
+              onOverrideChange={(override) => setCreativeSpec((prev) => ({ ...prev, custom_prompt_override: override }))}
+            />
+          </Suspense>
+        )}
         {(mode === "quickTrack" || mode === "playlist") && (
+          <Suspense fallback={null}>
           <ReferenceTrackPicker
             works={pickerWorks}
             selectedId={referenceWorkId}
@@ -1387,11 +1743,7 @@ export default function CreatePage() {
             onSelect={setReferenceWorkId}
             onOffsetChange={setReferenceAvOffset}
           />
-        )}
-        {mode === "variation" && (
-          <Button variant="secondary" size="sm" block onClick={() => openStackPage("/packageStudio/pages/variation-lab/index")}>
-            {copy.variationLabUi.title}
-          </Button>
+          </Suspense>
         )}
         {mode === "lyrics" && (
           <>
@@ -1400,14 +1752,14 @@ export default function CreatePage() {
               placeholder={c.lyricsPlaceholder}
               value={lyrics}
               onInput={(e) => setLyrics(e.detail.value)}
-              maxlength={2000}
+              maxlength={8000}
             />
             <Button variant="secondary" size="sm" loading={generatingLyrics} onClick={generateLyricsAi}>
               {c.generateLyrics}
             </Button>
           </>
         )}
-        {mode === "cover" && coverStep === "generate" && (
+        {mode === "cover" && coverStep === "generate" && !coverLyricLock && (
           <TextArea
             label={c.lyricsLabel}
             value={coverLyrics}
@@ -1415,10 +1767,14 @@ export default function CreatePage() {
             maxlength={2000}
           />
         )}
-        {needsSeed && (
+        {mode === "cover" && coverStep === "generate" && coverLyricLock ? (
+          <Text className="typo-meta">{c.coverLyricLockHint}</Text>
+        ) : null}
+        {needsSeed && !followAlong && (
           <Suspense fallback={<LoadingSkeleton count={2} />}>
             <WorkPicker
               value={seedWorkId}
+              authNext={CREATE_NEXT}
               onChange={(id, title) => {
                 setSeedWorkId(id);
                 if (title) setItem("create:seedTitle", title);
@@ -1430,7 +1786,7 @@ export default function CreatePage() {
       </BottomSheet>
 
       <BottomSheet open={draftsOpen} title={c.draftsLabel} onClose={() => setDraftsOpen(false)}>
-        {drafts.length === 0 && <Text className="typo-meta">{c.draftsLabel}</Text>}
+        {drafts.length === 0 && <Text className="typo-meta">{isLoggedIn() ? c.draftsEmpty : c.draftsEmptyGuest}</Text>}
         {drafts.map((d) => (
           <View key={d.id} className="create-draft-row">
             <Button variant="ghost" block onClick={() => applyDraft(d)}>
@@ -1453,11 +1809,13 @@ export default function CreatePage() {
           onClose={() => setPaywallOpen(false)}
           onSuccess={() => {
             setPaywallOpen(false);
-            void generate();
+            void creditsCtx?.refresh();
+            showSuccess(c.paywallReady);
           }}
         />
       </Suspense>
 
+      <Suspense fallback={null}>
       <WorkTitleSheet
         open={titleSheetOpen}
         sheetTitle={c.workTitleSheetTitle}
@@ -1477,6 +1835,7 @@ export default function CreatePage() {
         onConfirm={() => void requestGenerate(titleDraft)}
         onClose={() => setTitleSheetOpen(false)}
       />
+      </Suspense>
       <AiDisclaimerSheet
         open={aiDisclaimerOpen}
         loading={aiConsentLoading}

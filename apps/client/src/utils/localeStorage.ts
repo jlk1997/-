@@ -1,7 +1,6 @@
 import Taro from "@tarojs/taro";
 import { getCopy, LOCALE_STORAGE_KEY, type Copy, type Locale, defaultLocale } from "@vibe-sorcery/i18n";
 import { getItem, setItem } from "../platform/storage";
-import { TAB_PAGE_PATHS } from "../constants/routes";
 import { syncTabBarLocale } from "./syncTabBar";
 import { syncNavTitle } from "./syncNavTitle";
 
@@ -15,16 +14,15 @@ export function getStoredLocale(): Locale {
 const TAB_NAV_KEYS: Record<string, keyof Copy["navTitles"]> = {
   "pages/create/index": "create",
   "pages/feed/index": "feed",
+  "pages/creator/index": "creator",
   "pages/library/index": "library",
   "pages/profile/index": "profile",
 };
 
 export function navTitleForRoute(route: string, locale: Locale): string {
   const copy = getCopy(locale);
-  const tabKey = TAB_PAGE_PATHS.find((p) => route.includes(p));
-  if (tabKey && TAB_NAV_KEYS[tabKey]) {
-    return copy.navTitles[TAB_NAV_KEYS[tabKey]];
-  }
+  const named = Object.keys(TAB_NAV_KEYS).find((p) => route.includes(p));
+  if (named) return copy.navTitles[TAB_NAV_KEYS[named]];
   return copy.meta.title;
 }
 

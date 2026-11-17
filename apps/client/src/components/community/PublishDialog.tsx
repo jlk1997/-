@@ -2,7 +2,7 @@ import { useState } from "react";
 import { View, Text } from "@tarojs/components";
 import Taro from "@tarojs/taro";
 import { useLocale } from "@vibe-sorcery/i18n";
-import { Button, ChipGroup, TextArea } from "../ui";
+import { Button, SegmentedControl, TextArea } from "../ui";
 import { ConsentCheckbox } from "../legal/ConsentCheckbox";
 import "./PublishDialog.scss";
 
@@ -14,21 +14,23 @@ export type PublishOptions = {
 
 type Props = {
   workTitle: string;
+  finishing?: boolean;
   onPublish: (caption: string, opts: PublishOptions) => Promise<void>;
   onClose: () => void;
 };
 
-export function PublishDialog({ workTitle, onPublish, onClose }: Props) {
+export function PublishDialog({ workTitle, finishing = false, onPublish, onClose }: Props) {
   const { copy } = useLocale();
   const p = copy.publishUi;
   const l = copy.legalUi;
   const [caption, setCaption] = useState(p.defaultCaption.replace("{title}", workTitle));
   const [allowRemix, setAllowRemix] = useState(true);
-  const [license, setLicense] = useState<PublishOptions["license"]>("allow_remix");
+  const [license, setLicense] = useState<"allow_remix" | "attribution">("allow_remix");
   const [compliance, setCompliance] = useState(false);
   const [loading, setLoading] = useState(false);
 
   async function submit() {
+    if (loading) return;
     if (!compliance) {
       Taro.showToast({ title: l.mustAgree, icon: "none" });
       return;
@@ -51,27 +53,27 @@ export function PublishDialog({ workTitle, onPublish, onClose }: Props) {
   return (
     <View className="publish-dialog" onClick={onClose}>
       <View className="publish-dialog__sheet" onClick={(e) => e.stopPropagation()}>
+        <View className="publish-dialog__handle" />
         <Text className="publish-dialog__title">{p.title}</Text>
+        <Text className="publish-dialog__hint">{p.discoverNotStore}</Text>
+        {finishing ? <Text className="publish-dialog__hint">{p.postProcessHint}</Text> : null}
         <TextArea label={p.captionLabel} value={caption} onInput={(e) => setCaption(e.detail.value)} maxlength={200} />
-        <Text className="publish-dialog__label">{p.remixLabel}</Text>
-        <ChipGroup
-          options={[
-            { value: "yes", label: p.allowRemix },
-            { value: "no", label: p.disallowRemix },
-          ]}
-          value={allowRemix ? "yes" : "no"}
-          onChange={(v) => setAllowRemix(v === "yes")}
-        />
+        <View className="publish-dialog__remix" onClick={() => setAllowRemix((v) => !v)}>
+          <Text className="publish-dialog__label publish-dialog__label--inline">{p.remixLabel}</Text>
+          <View className={`publish-dialog__switch${allowRemix ? " publish-dialog__switch--on" : ""}`}>
+            <View className="publish-dialog__switch-knob" />
+          </View>
+        </View>
         {allowRemix && (
           <>
             <Text className="publish-dialog__label">{p.licenseLabel}</Text>
-            <ChipGroup
+            <SegmentedControl
               options={[
                 { value: "allow_remix", label: p.licenseAllow },
                 { value: "attribution", label: p.licenseAttribution },
               ]}
               value={license}
-              onChange={(v) => setLicense(v as PublishOptions["license"])}
+              onChange={setLicense}
             />
           </>
         )}

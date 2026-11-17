@@ -1,0 +1,29 @@
+{
+  "name": "@vibe-sorcery/studio",
+  "version": "3.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.59.16",
+    "@vibe-sorcery/api-client": "3.0.0",
+    "@vibe-sorcery/i18n": "3.0.0",
+    "@vibe-sorcery/mix-engine": "3.0.0",
+    "@vibe-sorcery/types": "3.0.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-router-dom": "^6.28.0",
+    "zustand": "^5.0.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "typescript": "^5.7.2",
+    "vite": "^5.4.11"
+  }
+}

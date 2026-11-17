@@ -30,7 +30,7 @@ def global_search(q: str = "", db: Session = Depends(get_db), user=Depends(get_o
 
     users = (
         db.query(User)
-        .filter(User.username.ilike(pattern))
+        .filter(User.username.ilike(pattern), User.is_active.is_(True), User.deleted_at.is_(None))
         .limit(10)
         .all()
     )

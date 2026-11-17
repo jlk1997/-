@@ -7,10 +7,10 @@ import "./MemberExportQuotas.scss";
 type Quotas = Awaited<ReturnType<typeof vibeApi.getMemberExportQuotas>>;
 
 const ROWS = [
-  { key: "stems" as const, labelKey: "exportTypeStems" as const, comingSoon: true },
-  { key: "hq_wav" as const, labelKey: "exportTypeHqWav" as const, comingSoon: true },
-  { key: "ai_cover" as const, labelKey: "exportTypeAiCover" as const, comingSoon: false },
-  { key: "mv_video" as const, labelKey: "exportTypeMv" as const, comingSoon: false },
+  { key: "stems" as const, labelKey: "exportTypeStems" as const },
+  { key: "hq_wav" as const, labelKey: "exportTypeHqWav" as const },
+  { key: "ai_cover" as const, labelKey: "exportTypeAiCover" as const },
+  { key: "mv_video" as const, labelKey: "exportTypeMv" as const },
 ];
 
 export function MemberExportQuotas() {
@@ -27,17 +27,17 @@ export function MemberExportQuotas() {
   return (
     <View className="member-export-quotas">
       <Text className="member-export-quotas__title">{eco.exportQuotasTitle}</Text>
-      {ROWS.map(({ key, labelKey, comingSoon }) => {
+      {ROWS.map(({ key, labelKey }) => {
         const q = quotas[key];
         if (!q?.limit) return null;
-        const label = eco[labelKey];
-        const suffix = comingSoon ? ` (${eco.exportComingSoon})` : "";
+        const ready = q.available !== false && quotas.capabilities?.[key] !== false;
         return (
           <Text key={key} className="typo-meta">
             {eco.exportQuotaRow
-              .replace("{label}", `${label}${suffix}`)
+              .replace("{label}", eco[labelKey])
               .replace("{remaining}", String(q.remaining))
               .replace("{limit}", String(q.limit))}
+            {ready ? "" : ` · ${eco.exportQuotaUnavailable}`}
           </Text>
         );
       })}

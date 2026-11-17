@@ -15,6 +15,10 @@ export type MusicCreativeSpec = {
   style_tags: string;
   journey_hint?: string;
   custom_prompt_override?: string;
+  /** 人声只作为描述引导，模型没有独立的性别或唱法参数。 */
+  vocal_gender?: string;
+  vocal_style?: string;
+  language?: string;
   /** 情绪能量 (1-9)，越高越激烈。来自情绪诊断/情绪盘，驱动 tempo 与能量描述词。 */
   arousal?: number | null;
   /** 情绪明暗 (1-9)，越高越明亮愉悦。来自情绪诊断/情绪盘，驱动明暗氛围描述词。 */
@@ -37,6 +41,9 @@ export type SoundRecipeOptions = {
   textures: SoundRecipeOption[];
   meters: SoundRecipeOption[];
   eras: SoundRecipeOption[];
+  vocal_genders?: SoundRecipeOption[];
+  vocal_styles?: SoundRecipeOption[];
+  languages?: SoundRecipeOption[];
 };
 
 export function emptyCreativeSpec(): MusicCreativeSpec {

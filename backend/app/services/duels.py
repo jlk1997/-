@@ -12,8 +12,10 @@ from sqlalchemy.orm import Session
 from app.models.schemas import Duel, DuelVote, Post, User, UserDuelQuota, Work
 from app.services.generation_gate import charge_generation_credits
 from app.services.credits import grant_credits_with_transaction
-from app.services.listen_engagement import _resonance_score
+from app.services.listen_engagement import MIN_LISTEN_RATIO, _resonance_score
 from app.services.subscriptions import is_active_subscriber
+
+MIN_VOTE_LISTEN_RATIO = MIN_LISTEN_RATIO
 
 DUEL_START_COST = 1
 DUEL_VOTE_HOURS = 24
@@ -268,8 +270,8 @@ def cast_duel_vote(
 ) -> dict[str, Any]:
     if side not in ("a", "b"):
         raise HTTPException(status_code=400, detail="side must be a or b")
-    if listen_ratio < 0.5:
-        raise HTTPException(status_code=400, detail="需要试听至少 50% 才能投票")
+    if listen_ratio < MIN_VOTE_LISTEN_RATIO:
+        raise HTTPException(status_code=400, detail="需要试听至少 80% 才能投票")
 
     try:
         did = uuid.UUID(duel_id)
@@ -340,6 +342,27 @@ def settle_duel(db: Session, duel: Duel) -> dict[str, Any]:
     duel.settled_at = datetime.utcnow()
 
     if winner_id:
+        winner_work = challenger_work if winner_id == duel.challenger_id else opponent_work
+        if winner_work:
+            from app.services.distribution.automation import stamp_release_priority
+
+            stamp_release_priority(winner_work, reason="duel_winner", rank=1, label="duel_winner")
+            from app.services.radio.network import stamp_radio_feature
+            from app.services.notifications import create_notification
+
+            stamp_radio_feature(winner_work, reason="duel_winner", rank=1, stations=["weekend", "daily"])
+            create_notification(
+                db,
+                winner_id,
+                "release_hint",
+                {
+                    "work_id": str(winner_work.id),
+                    "reason": "duel_winner",
+                    "rank": 1,
+                    "message": "决斗胜出，已进入厂牌优先代发队列",
+                },
+                commit=False,
+            )
         grant_credits_with_transaction(
             db,
             winner_id,

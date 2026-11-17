@@ -19,7 +19,7 @@ taro-button-core {
   font-family: inherit;
 }
 
-/* H5 TabBar — obsidian glass + gold accent; must sit above mini player for taps */
+/* H5 TabBar — obsidian glass; selected label is white. Must sit above mini player for taps */
 .taro-tabbar__tabbar,
 .weui-tabbar,
 taro-tabbar {
@@ -27,7 +27,12 @@ taro-tabbar {
   pointer-events: auto !important;
   background: rgba(5, 5, 8, 0.92) !important;
   backdrop-filter: blur(24px);
-  border-top: 1rpx solid $border-ritual !important;
+  border-top: 1rpx solid $border-subtle !important;
+
+  @media (max-width: 480PX) {
+    backdrop-filter: none !important;
+    background: rgba(5, 5, 8, 0.96) !important;
+  }
 }
 
 /* Tab page visibility — no child combinator; pages may nest under App root on H5 */
@@ -51,12 +56,14 @@ taro-tabbar {
   min-height: 100%;
 }
 
-/* navigateTo 子页面 — 必须压在 Tab 页之上 */
+/* navigateTo 子页面 — 必须压过 Tab 页和底栏（底栏 z-index 250） */
 .taro_router > .taro_page.taro_page_show:not(.taro_tabbar_page) {
   display: block !important;
   visibility: visible !important;
   transform: none !important;
-  z-index: 10 !important;
+  z-index: 300 !important;
+  min-height: 100% !important;
+  background: $void !important;
 }
 
 .taro-tabbar__tabbar-item,
@@ -67,7 +74,18 @@ taro-tabbar {
 
 .taro-tabbar__tabbar-item--active,
 .weui-tabbar__item.weui-bar__item_on {
-  color: $gold !important;
+  color: rgba(255, 255, 255, 0.92) !important;
+}
+
+/* Coach overlay must receive taps; tab bar / header sit at 250/200 otherwise. */
+html.coach-blocking,
+html.privacy-blocking {
+  .taro-tabbar__tabbar,
+  .weui-tabbar,
+  taro-tabbar,
+  .app-shell__header--global {
+    pointer-events: none !important;
+  }
 }
 
 /* Studio subpages (情绪旅程等) — keep tab bar visible on H5 */
@@ -80,5 +98,39 @@ html.layout-tab-visible {
     opacity: 1 !important;
     pointer-events: auto !important;
     transform: translate3d(0, 0, 0) !important;
+  }
+}
+
+/* Login / stack pages: tab bar must not steal taps (WeChat especially). */
+html.h5-stack-open {
+  .taro-tabbar__tabbar,
+  .weui-tabbar,
+  taro-tabbar {
+    pointer-events: none !important;
+    visibility: hidden !important;
+  }
+}
+
+@media (min-width: 960PX) {
+  html,
+  body {
+    background: #050508;
+  }
+
+  .taro-tabbar__container {
+    max-width: 480PX;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .taro-tabbar__tabbar,
+  .weui-tabbar,
+  .mini-player,
+  .app-shell__header--global,
+  .create-home__dock,
+  .global-job-banner {
+    left: calc(50vw - 240PX);
+    right: calc(50vw - 240PX);
+    width: auto;
   }
 }

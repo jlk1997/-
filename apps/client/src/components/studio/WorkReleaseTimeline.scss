@@ -1,0 +1,112 @@
+@import "../../styles/_utilities.scss";
+
+.work-journey {
+  margin: $space-sm 0;
+  padding: $space-sm $space-md;
+  border-radius: $radius-md;
+  background: $obsidian;
+  border: 1rpx solid $border-subtle;
+}
+
+.work-journey__title {
+  display: block;
+  font-size: var(--text-micro);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: $muted;
+  margin-bottom: $space-xs;
+}
+
+.work-journey__rail {
+  display: flex;
+  flex-direction: column;
+}
+
+.work-journey__row {
+  display: flex;
+  align-items: stretch;
+  gap: $space-sm;
+  min-height: 56rpx;
+}
+
+.work-journey__mark {
+  position: relative;
+  width: 28rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.work-journey__dot {
+  width: 18rpx;
+  height: 18rpx;
+  border-radius: $radius-pill;
+  border: 2rpx solid $border;
+  background: $slate-veil;
+  z-index: 1;
+  margin-top: 10rpx;
+  flex-shrink: 0;
+
+  &--done {
+    background: $gold;
+    border-color: $gold;
+  }
+
+  &--active {
+    background: $gold-muted;
+    border-color: $gold;
+    box-shadow: $shadow-gold;
+  }
+
+  &--error {
+    background: $danger;
+    border-color: $danger;
+  }
+
+  &--wait {
+    background: transparent;
+  }
+}
+
+.work-journey__line {
+  flex: 1;
+  width: 3rpx;
+  min-height: 20rpx;
+  background: $border;
+  margin: 4rpx 0;
+
+  &--on {
+    background: linear-gradient(180deg, $gold, $border);
+  }
+}
+
+.work-journey__body {
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: $space-xs;
+  padding-bottom: $space-2xs;
+}
+
+.work-journey__label {
+  font-size: var(--text-meta);
+  color: $text;
+}
+
+.work-journey__status {
+  font-size: var(--text-micro);
+  color: $muted;
+
+  &--done {
+    color: $success;
+  }
+
+  &--active {
+    color: $gold;
+  }
+
+  &--error {
+    color: $danger;
+  }
+}

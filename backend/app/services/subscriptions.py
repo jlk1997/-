@@ -531,7 +531,12 @@ def remind_expiring_subscriptions(db: Session, *, days_before: int = 3) -> int:
             db,
             sub.user_id,
             "subscription_expiring",
-            {"days_left": days_left, "renews_at": sub.renews_at.isoformat() if sub.renews_at else None},
+            {
+                "days": days_left,
+                "days_left": days_left,
+                "renews_at": sub.renews_at.isoformat() if sub.renews_at else None,
+                "message": f"Membership expires in {days_left} days",
+            },
         )
         sent += 1
     return sent

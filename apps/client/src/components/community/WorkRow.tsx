@@ -8,6 +8,7 @@ import { BottomSheet, Icon, Badge } from "../ui";
 import { CommunityPostButton } from "./CommunityPostButton";
 import { AiGeneratedBadge } from "../legal/AiGeneratedBadge";
 import { clsx } from "../../utils/clsx";
+import { isPostProcessDegraded } from "../../utils/postProcess";
 import "./WorkRow.scss";
 
 type Props = {
@@ -31,6 +32,9 @@ type Props = {
   onGenerateCover?: () => void;
   onUploadCover?: () => void;
   onPostProcess?: () => void;
+  onBeautify?: () => void;
+  fromWorkbench?: boolean;
+  hasBeautifyMaster?: boolean;
   compact?: boolean;
   onOpen?: () => void;
 };
@@ -44,6 +48,7 @@ export function WorkRow({
   hlsReady,
   published,
   postId,
+  postProcessStatus,
   onPublish,
   onUnpublish,
   onRemix,
@@ -53,6 +58,9 @@ export function WorkRow({
   onGenerateCover,
   onUploadCover,
   onPostProcess,
+  onBeautify,
+  fromWorkbench,
+  hasBeautifyMaster,
   onOpen,
 }: Props) {
   const { copy } = useLocale();
@@ -61,6 +69,7 @@ export function WorkRow({
 
   const menuItems = [
     onRename && { id: "rename", label: w.renameAction, onClick: onRename },
+    onBeautify && { id: "beautify", label: copy.lightEditorUi.openBeautify, onClick: onBeautify },
     onRemix && { id: "remix", label: copy.derivative.remix.short, onClick: onRemix },
     onCover && { id: "cover", label: copy.derivative.cover.short, onClick: onCover },
     track && {
@@ -71,19 +80,21 @@ export function WorkRow({
     onGenerateCover && { id: "gen-cover", label: w.generateCover, onClick: onGenerateCover },
     onUploadCover && { id: "upload-cover", label: w.coverUpload, onClick: onUploadCover },
     onPostProcess && { id: "post", label: w.postProcess, onClick: onPostProcess },
-    onEmbed && { id: "embed", label: "Embed", onClick: onEmbed },
+    onEmbed && { id: "embed", label: w.embedAction, onClick: onEmbed },
     onUnpublish && { id: "unpub", label: w.unpublish, onClick: onUnpublish, danger: true },
   ].filter(Boolean) as Array<{ id: string; label: string; onClick: () => void; danger?: boolean }>;
 
   const showCommunity = (!!postId && published) || !!onPublish;
   const showFooter = showCommunity || menuItems.length > 0;
+  const sku = String(postProcessStatus?.sku_kind || "");
+  const degraded = isPostProcessDegraded(postProcessStatus);
 
   return (
     <>
       <View className="work-row">
         <View className="work-row__top" onClick={onOpen}>
           {coverUrl ? (
-            <Image className="work-row__cover" src={coverUrl} mode="aspectFill" />
+            <Image className="work-row__cover" src={coverUrl} mode="aspectFill" lazyLoad />
           ) : (
             <View className="work-row__cover work-row__cover--fallback">
               <Icon name="music" size="md" accent />
@@ -95,7 +106,11 @@ export function WorkRow({
             <View className="work-row__badges">
               <AiGeneratedBadge compact />
               {published && <Badge tone="accent">{w.published}</Badge>}
-              {hlsReady && <Badge tone="success">HLS</Badge>}
+              {hlsReady && !degraded && <Badge tone="success">{w.hlsReady}</Badge>}
+              {sku === "instrumental" && <Badge tone="accent">{w.instrumentalSku}</Badge>}
+              {fromWorkbench && <Badge tone="accent">{w.beautifyMaster}</Badge>}
+              {hasBeautifyMaster && !fromWorkbench && <Badge tone="warning">{w.hasBeautifyMaster}</Badge>}
+              {degraded && <Badge tone="warning">{w.artifactsDegraded}</Badge>}
             </View>
           </View>
           {track && (

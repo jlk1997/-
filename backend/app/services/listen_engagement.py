@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import date, datetime, timedelta
 from typing import Any
@@ -14,9 +15,94 @@ from app.config import settings
 from app.models.schemas import EmotionJournalEntry, ListenCheckin, Post, User, Work, WorkEngagementStats
 from app.services.credits import grant_credits_with_transaction
 
+logger = logging.getLogger(__name__)
+
 DAILY_CHECKIN_CREDIT_CAP = 3
 CHECKIN_CREDIT_REWARD = 1
 MIN_LISTEN_RATIO = 0.8
+VIBE_RADIO_CHANNEL = "vibe_radio"
+VIBE_RADIO_SOURCE = "first_party_radio"
+VIBE_RADIO_SELF_SOURCE = "first_party_radio_self"
+RADIO_PAYOUT_MINOR = 0
+MEMBER_RADIO_PAYOUT_MINOR = 0
+
+
+def is_own_work(work: Work, listener_id: uuid.UUID | None) -> bool:
+    return bool(listener_id and work.owner_id == listener_id)
+
+
+RADIO_RULES = {
+    "channel_code": VIBE_RADIO_CHANNEL,
+    "min_listen_ratio": MIN_LISTEN_RATIO,
+    "dedupe": "one_complete_per_user_work_day",
+    "usable_for_settlement": False,
+    "revenue_minor_per_complete": RADIO_PAYOUT_MINOR,
+    "currency": "CNY",
+    "note": "first_party_discovery",
+    "self_listen_source": VIBE_RADIO_SELF_SOURCE,
+    "member_revenue_minor_per_complete": MEMBER_RADIO_PAYOUT_MINOR,
+}
+
+
+def record_vibe_radio_complete(
+    db: Session,
+    work: Work,
+    *,
+    listen_ratio: float,
+    listener_id: uuid.UUID | None = None,
+    station: str | None = None,
+) -> dict[str, Any]:
+    from app.services.royalty.snapshots import increment_display_snapshot
+
+    raw = {"listen_ratio": listen_ratio, "rule": "min_80_complete"}
+    if station:
+        raw["station"] = station
+    if is_own_work(work, listener_id):
+        increment_display_snapshot(
+            db,
+            user_id=work.owner_id,
+            channel_code=VIBE_RADIO_CHANNEL,
+            period_key=date.today().strftime("%Y-%m"),
+            source=VIBE_RADIO_SELF_SOURCE,
+            streams=1,
+            work_id=work.id,
+            raw={**raw, "self_listen": True},
+        )
+        return {"self_listen": True, "settled": False, "payout_minor": 0}
+    from app.services.royalty.settlement import prefer_label_release
+
+    raw["payout_minor"] = 0
+    raw["member_split"] = False
+    raw["display_only"] = True
+    release = prefer_label_release(db, work.id)
+    increment_display_snapshot(
+        db,
+        user_id=work.owner_id,
+        channel_code=VIBE_RADIO_CHANNEL,
+        period_key=date.today().strftime("%Y-%m"),
+        source=VIBE_RADIO_SOURCE,
+        streams=1,
+        work_id=work.id,
+        release_id=release.id if release else None,
+        raw=raw,
+    )
+    from app.services.notifications import notify_radio_listen_settled
+
+    listener_name = ""
+    if listener_id:
+        row = db.query(User.username).filter(User.id == listener_id).first()
+        listener_name = str(row[0]) if row else ""
+    notify_radio_listen_settled(
+        db,
+        work.owner_id,
+        work_id=str(work.id),
+        work_title=str(work.title or ""),
+        payout_minor=0,
+        listener_username=listener_name,
+        station=station,
+        commit=False,
+    )
+    return {"self_listen": False, "settled": False, "payout_minor": 0}
 
 
 def _resonance_score(work: Work, arousal: float | None, valence: float | None) -> float:
@@ -51,6 +137,7 @@ def submit_listen_checkin(
     arousal: float | None = None,
     valence: float | None = None,
     mood_tags: list[str] | None = None,
+    station: str | None = None,
 ) -> dict[str, Any]:
     if listen_ratio < MIN_LISTEN_RATIO:
         raise HTTPException(status_code=400, detail="需要听完至少 80% 才能打卡")
@@ -64,6 +151,7 @@ def submit_listen_checkin(
     if not work:
         raise HTTPException(status_code=404, detail="Work not found")
 
+    own_work = is_own_work(work, user_id)
     today = date.today()
     existing = (
         db.query(ListenCheckin)
@@ -75,12 +163,15 @@ def submit_listen_checkin(
             "duplicate": True,
             "resonance_score": existing.resonance_score,
             "credits_granted": 0,
+            "self_listen": own_work,
+            "settled": False,
+            "payout_minor": 0,
         }
 
     resonance = _resonance_score(work, arousal, valence)
     credits_granted = False
     reward = 0
-    if _today_checkin_credits(db, user_id) < DAILY_CHECKIN_CREDIT_CAP:
+    if not own_work and _today_checkin_credits(db, user_id) < DAILY_CHECKIN_CREDIT_CAP:
         grant_credits_with_transaction(
             db,
             user_id,
@@ -92,6 +183,11 @@ def submit_listen_checkin(
         credits_granted = True
         reward = CHECKIN_CREDIT_REWARD
 
+    tags = list(mood_tags or [])
+    if station:
+        token = f"radio:{station}"
+        if token not in tags:
+            tags.append(token)
     row = ListenCheckin(
         user_id=user_id,
         work_id=wid,
@@ -99,7 +195,8 @@ def submit_listen_checkin(
         listen_ratio=listen_ratio,
         arousal=arousal,
         valence=valence,
-        mood_tags=mood_tags or [],
+        mood_tags=tags,
+        station=station,
         resonance_score=resonance,
         credits_granted=credits_granted,
     )
@@ -109,9 +206,10 @@ def submit_listen_checkin(
     if not stats:
         stats = WorkEngagementStats(work_id=wid)
         db.add(stats)
-    stats.listen_completes = (stats.listen_completes or 0) + 1
-    stats.resonance_total = (stats.resonance_total or 0.0) + resonance
-    stats.resonance_count = (stats.resonance_count or 0) + 1
+    if not own_work:
+        stats.listen_completes = (stats.listen_completes or 0) + 1
+        stats.resonance_total = (stats.resonance_total or 0.0) + resonance
+        stats.resonance_count = (stats.resonance_count or 0) + 1
     stats.updated_at = datetime.utcnow()
 
     db.add(
@@ -128,13 +226,32 @@ def submit_listen_checkin(
 
     from app.services.user_engagement import on_engagement_event
 
-    on_engagement_event(db, user_id, "listen_complete_checkin", {"work_id": work_id, "resonance": resonance})
+    on_engagement_event(
+        db,
+        user_id,
+        "listen_complete_checkin",
+        {"work_id": work_id, "resonance": resonance, "station": station},
+    )
+    radio = {"self_listen": own_work, "settled": False, "payout_minor": 0}
+    try:
+        radio = record_vibe_radio_complete(
+            db,
+            work,
+            listen_ratio=listen_ratio,
+            listener_id=user_id,
+            station=station,
+        )
+    except Exception:
+        logger.warning("vibe_radio snapshot failed for %s", work_id, exc_info=True)
 
     db.commit()
     return {
         "duplicate": False,
         "resonance_score": resonance,
         "credits_granted": reward,
+        "self_listen": bool(radio.get("self_listen")),
+        "settled": bool(radio.get("settled")),
+        "payout_minor": int(radio.get("payout_minor") or 0),
     }
 
 
@@ -192,6 +309,7 @@ def mood_radio_daily(db: Session, user_id: uuid.UUID | None, *, limit: int = 3) 
                 "moods": work.moods or [],
                 "arousal": work.arousal,
                 "valence": work.valence,
+                "is_mine": bool(user_id and work.owner_id == user_id),
             }
         )
     return out

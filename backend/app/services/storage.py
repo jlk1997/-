@@ -36,7 +36,35 @@ class StorageService:
                 self.client.create_bucket(Bucket=self.bucket)
             except Exception:
                 pass
+        self._ensure_cors()
         self._ready = True
+
+    def _ensure_cors(self) -> None:
+        """Allow the web app to decode audio from this bucket. Failures stay quiet."""
+        origins = []
+        try:
+            origins = list(settings.cors_origin_list or [])
+        except Exception:
+            origins = []
+        if not origins:
+            return
+        try:
+            self.client.put_bucket_cors(
+                Bucket=self.bucket,
+                CORSConfiguration={
+                    "CORSRules": [
+                        {
+                            "AllowedOrigins": origins,
+                            "AllowedMethods": ["GET", "HEAD"],
+                            "AllowedHeaders": ["*"],
+                            "ExposeHeaders": ["Accept-Ranges", "Content-Range", "Content-Length", "ETag"],
+                            "MaxAgeSeconds": 3600,
+                        }
+                    ]
+                },
+            )
+        except Exception:
+            return
 
     def upload_file(
         self,

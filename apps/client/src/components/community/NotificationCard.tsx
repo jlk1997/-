@@ -18,7 +18,37 @@ const TYPE_ICONS: Record<string, IconName> = {
   challenge_ending: "flag",
   tip_received: "heartFilled",
   creator_weekly: "feed",
+  radio_trial_ended: "music",
+  radio_trial_ending: "music",
+  radio_listen_settled: "music",
+  distribution_status: "share",
+  settlement_ready: "sigil",
+  settlement_draft: "sigil",
+  withdrawal_update: "grimoire",
+  withdrawal_paid: "grimoire",
+  release_hint: "share",
+  release_auto_submitted: "share",
+  sync_order: "sigil",
+  low_credits: "sparkle",
+  subscription_expiring: "info",
+  ops_sla: "flag",
+  payout_day: "grimoire",
+  seat_challenge: "profile",
 };
+
+function iconFor(type: string): IconName {
+  if (TYPE_ICONS[type]) return TYPE_ICONS[type];
+  if (type.startsWith("recall_")) return "sparkle";
+  return "bell";
+}
+
+function toneFor(type: string): "accent" | "info" | "warm" | "danger" {
+  if (TYPE_TONES[type]) return TYPE_TONES[type];
+  if (type.startsWith("recall_")) return "warm";
+  if (type === "ops_sla" || type === "seat_challenge") return "warm";
+  if (type === "payout_day") return "accent";
+  return "accent";
+}
 
 const TYPE_TONES: Record<string, "accent" | "info" | "warm" | "danger"> = {
   remix_done: "info",
@@ -35,6 +65,22 @@ const TYPE_TONES: Record<string, "accent" | "info" | "warm" | "danger"> = {
   challenge_ending: "warm",
   tip_received: "warm",
   creator_weekly: "info",
+  radio_trial_ended: "accent",
+  radio_trial_ending: "warm",
+  radio_listen_settled: "accent",
+  distribution_status: "info",
+  settlement_ready: "accent",
+  settlement_draft: "info",
+  withdrawal_update: "warm",
+  withdrawal_paid: "accent",
+  release_hint: "accent",
+  release_auto_submitted: "info",
+  sync_order: "warm",
+  low_credits: "warm",
+  subscription_expiring: "warm",
+  ops_sla: "warm",
+  payout_day: "accent",
+  seat_challenge: "warm",
 };
 
 type Props = {
@@ -46,8 +92,8 @@ type Props = {
 };
 
 export function NotificationCard({ type, message, time, unread, onClick }: Props) {
-  const icon = TYPE_ICONS[type] || "bell";
-  const tone = TYPE_TONES[type] || "accent";
+  const icon = iconFor(type);
+  const tone = toneFor(type);
 
   return (
     <View className={clsx("notification-card", unread && "notification-card--unread", onClick && "notification-card--clickable")} onClick={onClick}>

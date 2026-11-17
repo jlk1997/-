@@ -19,7 +19,7 @@ type ThemeContextValue = {
   resetMood: () => void;
 };
 
-const DEFAULT_MOOD: ThemeMood = { hue: 42, coverAccent: "#d4af6a" };
+const DEFAULT_MOOD: ThemeMood = { hue: 220, coverAccent: "#c8c8d0" };
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 

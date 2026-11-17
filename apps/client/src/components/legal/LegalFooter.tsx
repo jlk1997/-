@@ -16,6 +16,8 @@ export function LegalFooter() {
     { label: l.aiServiceNotice, route: LEGAL_ROUTES.aiNotice },
     { label: l.paymentTerms, route: LEGAL_ROUTES.paymentTerms },
     { label: l.minorProtection, route: LEGAL_ROUTES.minorProtection },
+    { label: l.distributionLicense, route: LEGAL_ROUTES.distributionLicense },
+    { label: l.royaltyPayout, route: LEGAL_ROUTES.royaltyPayout },
   ];
 
   const icp = meta?.icp_number?.trim();
@@ -34,9 +36,17 @@ export function LegalFooter() {
       </View>
       {icp ? (
         <Text className="legal-footer__icp">{l.icpLabel.replace("{icp}", icp)}</Text>
-      ) : null}
+      ) : (
+        <Text className="legal-footer__icp">{l.icpPending}</Text>
+      )}
       {meta?.company_name ? (
-        <Text className="legal-footer__company">© {meta.company_name}</Text>
+        <Text className="legal-footer__company">{l.operatedBy.replace("{name}", meta.company_name)}</Text>
+      ) : null}
+      <Text className="legal-footer__company">{l.analysisOptional}</Text>
+      {meta?.contact_email || meta?.contact_phone ? (
+        <Text className="legal-footer__company">
+          {[meta.contact_email, meta.contact_phone].filter(Boolean).join(" · ")}
+        </Text>
       ) : null}
     </View>
   );

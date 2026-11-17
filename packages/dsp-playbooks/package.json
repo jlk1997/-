@@ -1,0 +1,7 @@
+{
+  "name": "@vibe-sorcery/dsp-playbooks",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.js",
+  "description": "Shared upload + harvest playbooks for the creator connector and browser farm."
+}

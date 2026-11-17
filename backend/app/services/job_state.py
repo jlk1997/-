@@ -17,6 +17,52 @@ ACTIVE_JOB_STATUSES = ("pending", "running", "audio_ready", "post_processing")
 TERMINAL_JOB_STATUSES = ("completed", "failed", "cancelled")
 NON_TERMINAL_STATUSES = ACTIVE_JOB_STATUSES
 
+STALE_SKIP = "skip"
+STALE_FAIL = "fail"
+STALE_COMPLETE = "complete"
+
+
+def job_has_audio(result: dict | None) -> bool:
+    """True once a listen-able take is stored on the job."""
+    if not isinstance(result, dict):
+        return False
+    if result.get("audio_url") or result.get("work_id"):
+        return True
+    work_ids = result.get("work_ids")
+    if isinstance(work_ids, list) and any(work_ids):
+        return True
+    steps = result.get("completed_steps")
+    if isinstance(steps, list):
+        for step in steps:
+            if isinstance(step, dict) and (step.get("work_id") or step.get("audio_url")):
+                return True
+    return False
+
+
+def stale_job_action(
+    *,
+    status: str,
+    age_seconds: float,
+    has_audio: bool,
+    has_celery_task: bool,
+    pending_limit_s: float,
+    running_limit_s: float,
+    audio_ready_limit_s: float,
+    post_process_limit_s: float,
+) -> str:
+    """Decide how a quiet job should be closed. Audio already saved is never failed."""
+    if status == "pending":
+        if age_seconds >= pending_limit_s and not has_celery_task:
+            return STALE_FAIL
+        return STALE_SKIP
+    if status == "running" and age_seconds >= running_limit_s:
+        return STALE_COMPLETE if has_audio else STALE_FAIL
+    if status == "audio_ready" and age_seconds >= audio_ready_limit_s:
+        return STALE_COMPLETE if has_audio else STALE_FAIL
+    if status == "post_processing" and age_seconds >= post_process_limit_s:
+        return STALE_COMPLETE if has_audio else STALE_FAIL
+    return STALE_SKIP
+
 
 class JobTransitionError(Exception):
     """Raised when a job cannot transition to the requested state."""
@@ -214,7 +260,18 @@ def on_post_process_finished(
         _publish_job_update(job)
         return job
 
-    if failed:
+    if failed and job_has_audio(dict(job.result or {})):
+        # Audio is already saved. A cover/HLS miss must not turn a listenable song into a failure.
+        result = dict(job.result or {})
+        result["post_process_warning"] = error_message or "后处理未完成，歌曲可以先听"
+        job.result = result
+        job.status = "completed"
+        job.progress = 1.0
+        job.phase = "done"
+        job.status_message = "炼成完成"
+        job.error_message = None
+        job.error_code = None
+    elif failed:
         job.status = "failed"
         job.error_message = error_message or job.error_message or "Post-processing failed"
         job.status_message = "后处理失败"
@@ -231,6 +288,14 @@ def on_post_process_finished(
     db.commit()
     db.refresh(job)
     _publish_job_update(job)
+
+    if job.status == "completed":
+        from app.services.queue_metrics import record_job_compose_completion
+
+        record_job_compose_completion(job)
+        from app.services.job_progress import run_job_completion_side_effects
+
+        run_job_completion_side_effects(db, job, dict(job.result or {}))
 
     if job.status in TERMINAL_JOB_STATUSES:
         from app.workers.tasks import notify_job_terminal_state
@@ -250,6 +315,36 @@ def fail_job(
     partial_result: dict | None = None,
 ) -> GenerationJob | None:
     from app.services.job_errors import classify_error_message, log_job_failure
+
+    existing = get_job_for_update(db, job_id, owner_id=owner_id)
+    if existing and existing.status in ("audio_ready", "post_processing") and job_has_audio(dict(existing.result or {})):
+        warning = error_message or "后处理未完成，歌曲可以先听"
+        result = dict(existing.result or {})
+        if partial_result:
+            result.update(partial_result)
+        result["post_process_warning"] = warning
+        existing.result = result
+        existing.status = "completed"
+        existing.progress = 1.0
+        existing.phase = "done"
+        existing.status_message = "炼成完成"
+        existing.error_message = None
+        existing.error_code = None
+        existing.updated_at = datetime.utcnow()
+        if hasattr(existing, "version"):
+            existing.version = int(existing.version or 0) + 1
+        db.commit()
+        db.refresh(existing)
+        _publish_job_update(existing)
+        from app.services.queue_metrics import record_job_compose_completion
+        from app.services.job_progress import run_job_completion_side_effects
+
+        record_job_compose_completion(existing)
+        run_job_completion_side_effects(db, existing, dict(existing.result or {}))
+        from app.workers.tasks import notify_job_terminal_state
+
+        notify_job_terminal_state(str(existing.id))
+        return existing
 
     code = error_code or classify_error_message(error_message, partial=partial_result is not None)
     fields: dict[str, Any] = {
@@ -272,6 +367,11 @@ def fail_job(
         log_job_failure(logger, str(job.id), code, error_message)
         if code == "MINIMAX_BALANCE":
             logger.error("MiniMax account balance exhausted — admin action required")
+        session_id = str((job.config or {}).get("workbench_session_id") or "")
+        if session_id:
+            from app.services.workbench import mark_session_job_failed
+
+            mark_session_job_failed(db, session_id, str(job.id))
         from app.workers.tasks import notify_job_terminal_state
 
         notify_job_terminal_state(str(job.id))

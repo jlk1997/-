@@ -1,0 +1,11 @@
+{
+  "name": "@vibe-sorcery/mix-engine",
+  "version": "3.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "dependencies": {
+    "@vibe-sorcery/types": "3.0.0"
+  }
+}

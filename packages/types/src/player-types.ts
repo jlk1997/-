@@ -7,12 +7,15 @@ export type PlayerTrack = {
   moods?: string[];
   artist?: string;
   source?: string;
+  station?: string;
+  isOwner?: boolean;
 };
 
 export type PlayTrackOptions = {
   queue?: PlayerTrack[];
   startIndex?: number;
   navigate?: boolean;
+  startAt?: number;
 };
 
 export function workToPlayerTrack(
@@ -24,7 +27,7 @@ export function workToPlayerTrack(
     cover_url?: string | null;
     moods?: string[];
   },
-  opts?: { artist?: string; source?: string },
+  opts?: { artist?: string; source?: string; station?: string; isOwner?: boolean },
 ): PlayerTrack {
   return {
     id: work.id,
@@ -35,6 +38,8 @@ export function workToPlayerTrack(
     moods: work.moods,
     artist: opts?.artist,
     source: opts?.source,
+    station: opts?.station,
+    isOwner: opts?.isOwner,
   };
 }
 

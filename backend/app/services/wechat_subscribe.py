@@ -96,10 +96,54 @@ def try_notify_low_credits(db: Session, user_id: uuid.UUID, balance: int) -> boo
         wx = db.query(WeChatUser).filter(WeChatUser.user_id == user_id).first()
         if not wx or not wx.openid:
             return False
-        logger.info("wechat_subscribe low_credits user=%s balance=%s tpl=%s", user_id, balance, tpl)
-        return True
+        template_data = {
+            "thing1": {"value": "次数不够"},
+            "number2": {"value": str(balance)},
+            "thing3": {"value": "请前往充值以继续创作"},
+        }
+        return _send_subscribe_message(
+            openid=wx.openid,
+            template_id=tpl,
+            data={"thing1": "次数不够", "number2": str(balance), "thing3": "请前往充值以继续创作"},
+        )
     except Exception:
         logger.exception("wechat_subscribe low_credits failed")
+        return False
+
+
+def try_notify_event(openid: str, event_type: str, title: str, body: str) -> bool:
+    """Generic subscribe message for key events."""
+    if not settings.wechat_app_id:
+        return False
+    tpl = _template_ids().get(event_type) or _template_ids().get("job_complete", "")
+    if not tpl:
+        return False
+    return _send_subscribe_message(
+        openid=openid,
+        template_id=tpl,
+        data={"thing1": title[:20], "phrase2": body[:20]},
+    )
+
+
+def try_notify_release_fields(db: Session, owner_id: uuid.UUID, *, fields: list[str]) -> bool:
+    """Best-effort subscribe message when ops asks for release fields. Skips if no template is configured."""
+    tpl = getattr(settings, "wechat_tpl_release_fields", "") or _template_ids().get("job_complete", "")
+    if not tpl or not settings.wechat_app_id:
+        return False
+    try:
+        from app.models.schemas import WeChatUser
+
+        wx = db.query(WeChatUser).filter(WeChatUser.user_id == owner_id).first()
+        if not wx or not wx.openid:
+            return False
+        label = "、".join(fields)[:20] or "发行资料"
+        return _send_subscribe_message(
+            openid=wx.openid,
+            template_id=tpl,
+            data={"thing1": "请补发行资料", "phrase2": label},
+        )
+    except Exception:
+        logger.exception("wechat_subscribe release_fields failed")
         return False
 
 

@@ -41,6 +41,18 @@ def test_rewrite_hls_playlist_uses_segments_proxy():
     assert "X-Amz" not in out
 
 
+def test_rewrite_hls_playlist_drops_presigned_segment_urls():
+    signed = (
+        "https://superformersmusic.com/vibe-sorcery/hls/w/u/seg_000.ts"
+        "?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Expires=600&X-Amz-Signature=abc"
+    )
+    m3u8 = f"#EXTM3U\n#EXTINF:6.0,\n{signed}\n"
+    out = rewrite_hls_playlist_for_gateway(m3u8, work_id="abc", ticket="tok123")
+    assert "/hls/segments/seg_000.ts?ticket=tok123" in out
+    assert "X-Amz" not in out
+    assert "vibe-sorcery/hls" not in out
+
+
 def test_segment_name_validation():
     assert is_safe_segment_name("seg_000.ts")
     assert not is_safe_segment_name("../etc/passwd")

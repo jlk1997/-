@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>比特音运营后台</title>
+  <style>
+    :root { color-scheme: light; }
+    body { margin: 0; font-family: "Microsoft YaHei", sans-serif; background: #f6f3ee; color: #1c1917; }
+    header { display: flex; justify-content: space-between; align-items: center; padding: 16px 24px; border-bottom: 1px solid #ddd6cc; }
+    h1 { font-size: 20px; margin: 0; }
+    nav { display: flex; gap: 8px; flex-wrap: wrap; padding: 12px 24px; }
+    button { font: inherit; border: 1px solid #ddd6cc; background: #fff; padding: 6px 12px; cursor: pointer; }
+    button.on { border-color: #8e2f2a; color: #8e2f2a; }
+    main { padding: 8px 24px 40px; }
+    table { width: 100%; border-collapse: collapse; background: #fff; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #eee; font-size: 14px; vertical-align: top; }
+    .muted { color: #5c5650; }
+    input { font: inherit; padding: 6px 8px; border: 1px solid #ddd6cc; width: 280px; }
+    pre { white-space: pre-wrap; background: #fff; padding: 12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>比特音运营后台</h1>
+    <span class="muted" id="who"></span>
+  </header>
+  <nav id="nav"></nav>
+  <main id="main"></main>
+  <script>
+    const API = localStorage.getItem("bittune.api") || "https://superformersmusic.com/api/v1";
+    const tabs = [
+      ["inbox", "今日"],
+      ["orders", "发行单"],
+      ["person", "用户"],
+      ["accounts", "厂牌账号"],
+      ["policy", "规则"],
+      ["money", "结算和提现"],
+      ["automation", "自动化"],
+      ["generation", "生成"],
+    ];
+    let tab = "inbox";
+    const nav = document.getElementById("nav");
+    tabs.forEach(([id, label]) => {
+      const btn = document.createElement("button");
+      btn.textContent = label;
+      btn.onclick = () => { tab = id; draw(); };
+      btn.dataset.id = id;
+      nav.appendChild(btn);
+    });
+
+    function token() { return localStorage.getItem("bittune.token") || ""; }
+
+    async function get(path) {
+      const res = await fetch(API + path, { headers: { Authorization: "Bearer " + token() } });
+      if (!res.ok) throw new Error(res.status + " " + path);
+      return res.json();
+    }
+
+    function table(columns, rows) {
+      const head = "<tr>" + columns.map((c) => "<th>" + c[0] + "</th>").join("") + "</tr>";
+      const body = rows.map((row) => "<tr>" + columns.map((c) => "<td>" + (row[c[1]] ?? "") + "</td>").join("") + "</tr>").join("");
+      return "<table>" + head + body + "</table>";
+    }
+
+    function cell(value) {
+      const td = document.createElement("td");
+      td.textContent = value == null ? "" : String(value);
+      return td;
+    }
+
+    async function openOrder(id) {
+      const data = await get("/admin/ops/orders/" + id);
+      const main = document.getElementById("main");
+      main.innerHTML = "";
+      const back = document.createElement("button");
+      back.textContent = "返回列表";
+      back.onclick = () => { tab = "orders"; draw(); };
+      main.appendChild(back);
+      const title = document.createElement("h2");
+      title.textContent = (data.title || "未命名") + " · " + (data.channel_code || "");
+      main.appendChild(title);
+      const lines = [
+        ["艺人", data.artist_name],
+        ["状态", data.status],
+        ["路线", data.mode === "self_release" ? "用户自己的账号" : "平台厂牌"],
+        ["ISRC", data.isrc],
+        ["语种", data.language],
+        ["歌曲页面", data.store_url],
+        ["母带", data.audio_url],
+        ["封面", data.cover_url],
+        ["发行包", data.kit_url],
+        ["还缺", (data.missing_fields || []).map((row) => row.label).join("、")],
+      ];
+      const list = document.createElement("table");
+      lines.forEach(([name, value]) => {
+        const tr = document.createElement("tr");
+        tr.appendChild(cell(name));
+        tr.appendChild(cell(value));
+        list.appendChild(tr);
+      });
+      main.appendChild(list);
+      const lyrics = document.createElement("pre");
+      lyrics.textContent = data.lyrics || "没有歌词";
+      main.appendChild(lyrics);
+      const sheet = document.createElement("pre");
+      sheet.textContent = data.paste_sheet || "";
+      main.appendChild(sheet);
+      const copy = document.createElement("button");
+      copy.textContent = "复制资料";
+      copy.onclick = () => navigator.clipboard.writeText(data.paste_sheet || "");
+      main.appendChild(copy);
+      if (data.kit_url) {
+        const kit = document.createElement("a");
+        kit.href = data.kit_url;
+        kit.textContent = "下载发行包";
+        kit.target = "_blank";
+        main.appendChild(kit);
+      }
+      const ask = document.createElement("button");
+      ask.textContent = "向用户要缺的资料";
+      ask.onclick = async () => {
+        const fields = (data.missing_fields || []).map((row) => row.field);
+        if (!fields.length) return;
+        await fetch(API + "/admin/ops/orders/" + id + "/request-fields", {
+          method: "POST",
+          headers: { Authorization: "Bearer " + token(), "Content-Type": "application/json" },
+          body: JSON.stringify({ fields }),
+        });
+        openOrder(id);
+      };
+      main.appendChild(ask);
+      const claim = document.createElement("button");
+      claim.textContent = "我来处理";
+      claim.onclick = async () => {
+        await fetch(API + "/admin/ops/orders/" + id + "/claim", { method: "POST", headers: { Authorization: "Bearer " + token() } });
+        openOrder(id);
+      };
+      main.appendChild(claim);
+      const note = document.createElement("input");
+      note.placeholder = "备注";
+      note.value = data.note || "";
+      main.appendChild(note);
+      const save = document.createElement("button");
+      save.textContent = "保存备注";
+      save.onclick = async () => {
+        await fetch(API + "/admin/ops/orders/" + id + "/note", {
+          method: "POST",
+          headers: { Authorization: "Bearer " + token(), "Content-Type": "application/json" },
+          body: JSON.stringify({ note: note.value }),
+        });
+      };
+      main.appendChild(save);
+    }
+
+    async function draw() {
+      [...nav.children].forEach((btn) => btn.classList.toggle("on", btn.dataset.id === tab));
+      const main = document.getElementById("main");
+      if (!token()) {
+        main.innerHTML = '<p>把登录后的 token 存到这个浏览器：</p><input id="tok" placeholder="token" /><button id="save">保存</button>';
+        document.getElementById("save").onclick = () => {
+          localStorage.setItem("bittune.token", document.getElementById("tok").value.trim());
+          draw();
+        };
+        return;
+      }
+      try {
+        if (tab === "inbox") {
+          const data = await get("/admin/ops/inbox");
+          const sla = await get("/admin/ops/sla");
+          main.innerHTML = "<p>等歌曲页面 " + data.waiting_receipt + " 单。等用户补资料 " + (data.waiting_user || 0) + " 单。扩展报错 " + data.extension_errors + " 单。</p><p>" + (sla.message || "没有超时的单") + "</p>";
+        } else if (tab === "orders") {
+          const data = await get("/admin/ops/orders");
+          const tableEl = document.createElement("table");
+          const head = document.createElement("tr");
+          ["渠道", "状态", "单号"].forEach((name) => {
+            const th = document.createElement("th");
+            th.textContent = name;
+            head.appendChild(th);
+          });
+          tableEl.appendChild(head);
+          (data.orders || []).forEach((row) => {
+            const tr = document.createElement("tr");
+            tr.appendChild(cell(row.channel_code));
+            tr.appendChild(cell(row.status));
+            const td = cell(row.id);
+            const open = document.createElement("button");
+            open.textContent = "打开";
+            open.onclick = () => openOrder(row.id);
+            td.appendChild(open);
+            tr.appendChild(td);
+            tableEl.appendChild(tr);
+          });
+          main.innerHTML = "";
+          main.appendChild(tableEl);
+        } else if (tab === "automation") {
+          const data = await get("/admin/ops/automation");
+          main.innerHTML = "<p class='muted'>没有对账匹配率的渠道继续人工。打款仍是财务确认后的人工打款。</p>" + table(
+            [["渠道", "channel_code"], ["单数", "orders"], ["填表失败", "fill_failed"], ["有歌曲页", "receipts"], ["匹配率", "match_rate"], ["说明", "note"]],
+            data.channels || []
+          );
+        } else if (tab === "generation") {
+          const data = await get("/admin/ops/generation");
+          const rate = data.success_rate == null ? "还没有样本" : Math.round(data.success_rate * 100) + "%";
+          main.innerHTML = "<p>24 小时成功率 " + rate + "。p50 " + (data.p50_seconds ?? "—") + " 秒，p95 " + (data.p95_seconds ?? "—") + " 秒。兜底 " + (data.fallback_count || 0) + " 次。tokens " + (data.tokens || 0) + "。分轨排队 " + ((data.queues || {}).stems || 0) + "。</p><p>告警：" + ((data.alerts || []).join("，") || "没有") + "</p><pre>" + JSON.stringify(data.error_kinds || {}, null, 2) + "</pre>";
+        } else if (tab === "person") {
+          main.innerHTML = '<input id="uid" placeholder="用户 id" /><button id="go">查看</button><div id="out"></div>';
+          document.getElementById("go").onclick = async () => {
+            const data = await get("/admin/ops/users/" + document.getElementById("uid").value.trim());
+            document.getElementById("out").innerHTML = "<pre>" + JSON.stringify(data, null, 2) + "</pre>";
+          };
+        } else if (tab === "accounts") {
+          const data = await get("/admin/ops/label-accounts");
+          main.innerHTML = "<p class='muted'>这里不显示密码。</p>" + table(
+            [["平台", "provider"], ["名称", "display_name"], ["有凭证", "has_token"]],
+            data.accounts || []
+          );
+        } else if (tab === "money") {
+          const batches = await get("/admin/settlement/batches");
+          const withdrawals = await get("/admin/settlement/withdrawals");
+          main.innerHTML = "<h2>结算批次</h2>" + table(
+            [["期间", "period_key"], ["状态", "status"], ["笔数", "line_count"]],
+            batches.batches || []
+          ) + "<h2>每月对账</h2><div id='tie'></div><h2>提现</h2><p class='muted'>标成已打款仍由财务在原管理页确认。这里只看，不打款。</p>" + table(
+            [["金额", "amount_minor"], ["状态", "status"], ["回单", "receipt_no"], ["用户", "user_email"]],
+            withdrawals.withdrawals || []
+          );
+          try {
+            const tie = await get("/admin/ops/reconciliation");
+            const node = document.getElementById("tie");
+            if (node) node.textContent = "未对齐 " + tie.untied + " 户。打款方式：人工。";
+          } catch (err) {
+            const node = document.getElementById("tie");
+            if (node) node.textContent = "对账需要财务权限。";
+          }
+        } else {
+          const data = await get("/admin/ops/policy");
+          main.innerHTML = "<pre>" + JSON.stringify(data, null, 2) + "</pre>";
+        }
+      } catch (err) {
+        main.innerHTML = "<p>" + err.message + "</p>";
+      }
+    }
+    draw();
+  </script>
+</body>
+</html>

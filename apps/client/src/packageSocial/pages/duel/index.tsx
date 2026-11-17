@@ -80,10 +80,10 @@ export default function DuelDetailPage() {
   }, [currentTime, duration]);
 
   const activeListenRatio = listenSide ? listenRatio : 0;
-  const canVote = activeListenRatio >= 0.5;
+  const canVote = activeListenRatio >= 0.8;
 
   function voteButtonLabel(side: "a" | "b") {
-    if (listenSide !== side || activeListenRatio < 0.5) return s.duelVoteNeedListen;
+    if (listenSide !== side || activeListenRatio < 0.8) return s.duelVoteNeedListen;
     return side === "a" ? s.voteA : s.voteB;
   }
 
@@ -118,7 +118,7 @@ export default function DuelDetailPage() {
   async function vote(side: "a" | "b") {
     if (!requireAuth() || !duelId) return;
     const ratio = listenSide === side ? listenRatio : 0;
-    if (ratio < 0.5) {
+    if (ratio < 0.8) {
       Taro.showToast({ title: s.duelListenFirst, icon: "none" });
       return;
     }

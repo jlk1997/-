@@ -63,7 +63,7 @@ export function SoundRecipePanel({ spec, options, keyOptions, bpmPresets = [], o
   }
 
   function renderSingle(
-    field: "tempo_feel" | "texture" | "meter" | "era" | "key",
+    field: "tempo_feel" | "texture" | "meter" | "era" | "key" | "vocal_gender" | "vocal_style" | "language",
     items: Array<{ id: string; label_zh?: string; label_en?: string; label?: string }>,
   ) {
     const current = spec[field];
@@ -174,6 +174,25 @@ export function SoundRecipePanel({ spec, options, keyOptions, bpmPresets = [], o
             <Text className="sound-recipe__label">{sr.era}</Text>
             {renderSingle("era", options.eras)}
           </View>
+          {options.vocal_genders && options.vocal_genders.length > 0 && (
+            <View className="sound-recipe__row">
+              <Text className="sound-recipe__label">{sr.vocalGender}</Text>
+              {renderSingle("vocal_gender", options.vocal_genders)}
+              <Text className="sound-recipe__label">{copy.createUi.vocalGuidance}</Text>
+            </View>
+          )}
+          {options.vocal_styles && options.vocal_styles.length > 0 && (
+            <View className="sound-recipe__row">
+              <Text className="sound-recipe__label">{sr.vocalStyle}</Text>
+              {renderSingle("vocal_style", options.vocal_styles)}
+            </View>
+          )}
+          {options.languages && options.languages.length > 0 && (
+            <View className="sound-recipe__row">
+              <Text className="sound-recipe__label">{sr.language}</Text>
+              {renderSingle("language", options.languages)}
+            </View>
+          )}
         </Collapsible>
       </View>
     </View>

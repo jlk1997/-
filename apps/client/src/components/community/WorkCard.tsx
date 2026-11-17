@@ -11,6 +11,8 @@ import { shareWork } from "../../platform/share";
 import { ActionIconBar, OverflowMenu, Icon, CreatorLevelBadge } from "../ui";
 import { AiGeneratedBadge } from "../legal/AiGeneratedBadge";
 import type { OverflowMenuItem } from "../ui";
+import { STACK_PAGE_ROUTES } from "../../constants/routes";
+import { hapticLight } from "../../utils/haptic";
 import "./WorkCard.scss";
 
 type Props = {
@@ -21,6 +23,9 @@ type Props = {
   remixParentTitle?: string;
   onRemixParentClick?: () => void;
   recommendLabel?: string;
+  liveStores?: number;
+  releaseStatus?: string;
+  isOwner?: boolean;
   caption?: string;
   coverUrl?: string;
   moods?: string[];
@@ -33,12 +38,14 @@ type Props = {
   onLike?: () => void;
   onCollect?: () => void;
   onRemix?: () => void;
+  onSameStyle?: () => void;
   onProvenance?: () => void;
   onReport?: () => void;
   onTip?: () => void;
   isAiGenerated?: boolean;
   onCommentToggle?: () => void;
   commentsOpen?: boolean;
+  authNext?: string;
 };
 
 export const WorkCard = memo(function WorkCard({
@@ -57,6 +64,7 @@ export const WorkCard = memo(function WorkCard({
   onLike,
   onCollect,
   onRemix,
+  onSameStyle,
   onProvenance,
   onReport,
   onTip,
@@ -66,6 +74,10 @@ export const WorkCard = memo(function WorkCard({
   remixParentTitle,
   onRemixParentClick,
   recommendLabel,
+  liveStores,
+  releaseStatus,
+  isOwner,
+  authNext,
 }: Props) {
   const { copy } = useLocale();
   const a = copy.actions;
@@ -96,6 +108,7 @@ export const WorkCard = memo(function WorkCard({
 
   function handlePlay() {
     if (!track) return;
+    hapticLight();
     ensureCoverAccent();
     if (playingThis) {
       togglePlay();
@@ -118,6 +131,14 @@ export const WorkCard = memo(function WorkCard({
     workId && onCollect
       ? { id: "collect", icon: collected ? "bookmarkFilled" : "bookmark", label: collected ? a.collected : a.collect, onClick: onCollect }
       : null,
+    workId && onCollect
+      ? {
+          id: "browseCollections",
+          icon: "bookmarkFilled",
+          label: a.browseCollections,
+          onClick: () => Taro.navigateTo({ url: STACK_PAGE_ROUTES.collections }),
+        }
+      : null,
     workId && onRemix ? { id: "remix", icon: "remix", label: d.remix.short, onClick: onRemix } : null,
     workId && onTip ? { id: "tip", icon: "heart", label: copy.ecosystemUi.tipTitle, onClick: onTip } : null,
     workId && onProvenance ? { id: "provenance", icon: "search", label: a.provenance, onClick: onProvenance } : null,
@@ -128,10 +149,7 @@ export const WorkCard = memo(function WorkCard({
     <View className="work-card">
       <View className="work-card__hero" onClick={track ? handlePlay : undefined}>
         {coverUrl ? (
-          <>
-            <Image className="work-card__cover-bg" src={coverUrl} mode="aspectFill" lazyLoad />
-            <Image className="work-card__cover" src={coverUrl} mode="aspectFill" lazyLoad />
-          </>
+          <Image className="work-card__cover" src={coverUrl} mode="aspectFill" lazyLoad />
         ) : (
           <View className="work-card__cover work-card__cover--fallback" />
         )}
@@ -143,6 +161,18 @@ export const WorkCard = memo(function WorkCard({
             </View>
           </View>
         )}
+        {onSameStyle ? (
+          <View
+            className="work-card__same-chip"
+            onClick={(ev) => {
+              ev.stopPropagation();
+              hapticLight();
+              onSameStyle();
+            }}
+          >
+            <Text className="work-card__same-chip-text">{d.startSameStyle}</Text>
+          </View>
+        ) : null}
       </View>
       <View className="work-card__body">
         <View className="work-card__head">
@@ -157,13 +187,25 @@ export const WorkCard = memo(function WorkCard({
               <CreatorLevelBadge level={authorCreatorLevel} compact />
             </View>
           )}
-          {authorUsername && <FollowButton username={authorUsername} initialFollowing={authorIsFollowing} />}
+          {authorUsername && <FollowButton username={authorUsername} initialFollowing={authorIsFollowing} authNext={authNext} />}
         </View>
         <View className="work-card__caption-row">
           <Text className="work-card__caption">{caption || copy.pages.discover.title}</Text>
           {isAiGenerated ? <AiGeneratedBadge compact /> : null}
         </View>
         {recommendLabel ? <Text className="work-card__recommend-badge">✦ {recommendLabel}</Text> : null}
+        {(Number(liveStores) > 0 || ["delivering", "queued"].includes(releaseStatus || "")) && workId ? (
+          <View className="work-card__passport-row">
+            <Text
+              className="work-card__passport"
+              onClick={() => Taro.navigateTo({ url: `/packageCreator/pages/passport/index?workId=${workId}` })}
+            >
+              {Number(liveStores) > 0
+                ? copy.creatorUi.liveStores.replace("{n}", String(liveStores))
+                : copy.creatorUi.goPassport}
+            </Text>
+          </View>
+        ) : null}
         {remixParentTitle ? (
           <Text className="work-card__remix-badge" onClick={onRemixParentClick}>
             {copy.generation.remixBasedOn.replace("{title}", remixParentTitle)}
@@ -173,6 +215,17 @@ export const WorkCard = memo(function WorkCard({
         <ActionIconBar
           items={[
             { id: "like", icon: liked ? "heartFilled" : "heart", count: likeCount, active: liked, accent: liked, onClick: onLike },
+            ...(workId && onCollect
+              ? [
+                  {
+                    id: "collect",
+                    icon: collected ? "bookmarkFilled" : "bookmark",
+                    active: collected,
+                    accent: collected,
+                    onClick: onCollect,
+                  },
+                ]
+              : []),
             { id: "play", icon: playingThis ? "pause" : "play", primary: true, onClick: handlePlay },
             { id: "comment", icon: "comment", accent: commentsOpen, onClick: onCommentToggle },
             {

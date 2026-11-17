@@ -1,0 +1,4 @@
+# Optional review-grade stem isolation for CN originality packs.
+# Heavy (PyTorch + Demucs). Do not install on the default API image.
+# Worker: docker build --build-arg INSTALL_DEMUCS=true
+demucs>=4.0.1

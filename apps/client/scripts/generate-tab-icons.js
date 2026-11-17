@@ -77,6 +77,18 @@ function drawIcon(kind, active) {
       on = line(x, y, cx, 18 * s, cx, 63 * s, 3 * s) || line(x, y, 28 * s, cy, 53 * s, cy, 3 * s);
     } else if (kind === "profile") {
       on = circle(x, y, cx, 28 * s, 10 * s) || circle(x, y, cx, cy + 8 * s, 18 * s);
+    } else if (kind === "ship") {
+      on =
+        (circle(x, y, cx, cy, 22 * s) && !circle(x, y, cx, cy, 16 * s)) ||
+        (circle(x, y, cx, cy, 10 * s) && !circle(x, y, cx, cy, 5 * s)) ||
+        line(x, y, 30 * s, 40 * s, 51 * s, 40 * s, 2.2 * s);
+    } else if (kind === "library") {
+      on =
+        circle(x, y, 28 * s, 56 * s, 8 * s) ||
+        circle(x, y, 56 * s, 50 * s, 8 * s) ||
+        line(x, y, 36 * s, 56 * s, 36 * s, 20 * s, 2.4 * s) ||
+        line(x, y, 64 * s, 50 * s, 64 * s, 16 * s, 2.4 * s) ||
+        line(x, y, 36 * s, 20 * s, 64 * s, 16 * s, 2.4 * s);
     }
     if (on) return [...color, 255];
     return [0, 0, 0, 0];
@@ -86,7 +98,7 @@ function drawIcon(kind, active) {
 const outDir = path.join(__dirname, "../src/assets/tab");
 fs.mkdirSync(outDir, { recursive: true });
 
-const icons = ["journey", "feed", "create", "profile"];
+const icons = ["journey", "feed", "create", "profile", "ship", "library"];
 for (const name of icons) {
   fs.writeFileSync(path.join(outDir, `${name}.png`), createPng(81, drawIcon(name, false)));
   fs.writeFileSync(path.join(outDir, `${name}-active.png`), createPng(81, drawIcon(name, true)));

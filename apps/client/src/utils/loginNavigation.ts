@@ -1,7 +1,8 @@
 import Taro from "@tarojs/taro";
-import { isTabUrl, resolvePageUrl } from "../constants/routes";
+import { isTabUrl, resolvePageUrl, stackPage } from "../constants/routes";
+import { peekPendingCheckin } from "../platform/pendingCheckin";
 
-const DEFAULT_TAB = "/pages/profile/index";
+const DEFAULT_TAB = "/pages/create/index";
 
 /** WeChat often ignores navigate/redirect if it runs in the same tick as showToast. */
 const NAV_DELAY_MS = 400;
@@ -18,10 +19,15 @@ function goDefaultTab() {
   void Taro.switchTab({ url: DEFAULT_TAB }).catch(() => {});
 }
 
+function pendingCheckinNext() {
+  const pending = peekPendingCheckin();
+  return pending ? stackPage("work", { workId: pending.work_id, play: "1" }) : "";
+}
+
 /** Perform the actual navigation away from the login page. */
 function performLeave(nextParam?: string) {
   const pages = Taro.getCurrentPages();
-  const raw = nextParam?.trim();
+  const raw = pendingCheckinNext() || nextParam?.trim();
 
   if (!raw) {
     if (pages.length > 1) {

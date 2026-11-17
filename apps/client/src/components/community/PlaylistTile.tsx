@@ -3,10 +3,10 @@ import { Icon } from "../ui";
 import "./PlaylistTile.scss";
 
 const GRADIENTS = [
-  "linear-gradient(135deg, #d4af6a, rgba(212, 175, 106, 0.35))",
-  "linear-gradient(135deg, rgba(212, 175, 106, 0.85), rgba(14, 14, 22, 0.9))",
+  "linear-gradient(135deg, #3a3a44, rgba(255, 255, 255, 0.2))",
+  "linear-gradient(135deg, rgba(10, 132, 255, 0.55), rgba(14, 14, 22, 0.9))",
   "linear-gradient(135deg, rgba(20, 184, 166, 0.55), rgba(5, 5, 8, 0.85))",
-  "linear-gradient(135deg, rgba(147, 130, 180, 0.4), #d4af6a)",
+  "linear-gradient(135deg, rgba(90, 98, 120, 0.7), rgba(10, 132, 255, 0.45))",
 ];
 
 type Props = {

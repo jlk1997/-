@@ -3,18 +3,20 @@ import { View, Text } from "@tarojs/components";
 import { useLocale } from "@vibe-sorcery/i18n";
 import { vibeApi } from "../../services/api";
 import { isLoggedIn, requireAuth } from "../../utils/auth";
+import { isWorkbenchMaster, successorByParentId } from "../../utils/workbenchWorks";
 import { Button } from "../ui";
 import "./WorkPicker.scss";
 
-type Work = { id: string; title: string };
+type Work = { id: string; title: string; badge?: string };
 
 type Props = {
   value: string;
   onChange: (workId: string, title?: string) => void;
   label?: string;
+  authNext?: string;
 };
 
-export function WorkPicker({ value, onChange, label }: Props) {
+export function WorkPicker({ value, onChange, label, authNext }: Props) {
   const { copy } = useLocale();
   const w = copy.workPickerUi;
   const [open, setOpen] = useState(false);
@@ -45,10 +47,21 @@ export function WorkPicker({ value, onChange, label }: Props) {
   }, [value, works]);
 
   async function openPicker() {
-    if (!requireAuth()) return;
+    if (!requireAuth(authNext)) return;
     try {
       const list = await vibeApi.listWorks();
-      setWorks(list.map((item) => ({ id: item.id, title: item.title })));
+      const masters = successorByParentId(list);
+      setWorks(
+        list.map((item) => ({
+          id: item.id,
+          title: item.title,
+          badge: isWorkbenchMaster(item)
+            ? copy.worksUi.beautifyMaster
+            : masters.has(item.id)
+              ? copy.worksUi.hasBeautifyMaster
+              : undefined,
+        })),
+      );
       setOpen(true);
     } catch {
       setWorks([]);
@@ -83,7 +96,7 @@ export function WorkPicker({ value, onChange, label }: Props) {
             {works.map((item) => (
               <View key={item.id} className="work-picker__row" onClick={() => pick(item)}>
                 <Text className="work-picker__title">{item.title}</Text>
-                <Text className="typo-meta">{item.id.slice(0, 8)}</Text>
+                <Text className="typo-meta">{[item.badge, item.id.slice(0, 8)].filter(Boolean).join(" · ")}</Text>
               </View>
             ))}
           </View>

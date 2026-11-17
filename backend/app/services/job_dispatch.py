@@ -19,6 +19,9 @@ from app.workers.tasks import (
     generate_playlist_task,
     generate_single_task,
     generate_variations_task,
+    lane_separate_task,
+    pack_preview_task,
+    workbench_render_task,
 )
 
 logger = logging.getLogger(__name__)
@@ -176,6 +179,36 @@ def dispatch_cover(db: Session, user_id: uuid.UUID, job_id: str, config: dict) -
 
 def dispatch_remix(db: Session, user_id: uuid.UUID, job_id: str, config: dict) -> None:
     dispatch_single(db, user_id, job_id, config)
+
+
+def dispatch_workbench(db: Session, user_id: uuid.UUID, job_id: str, config: dict) -> None:
+    _dispatch(
+        db,
+        user_id,
+        job_id,
+        config,
+        lambda q: workbench_render_task.apply_async(args=[job_id, config], queue=q),
+    )
+
+
+def dispatch_lane_separate(db: Session, user_id: uuid.UUID, job_id: str, config: dict) -> None:
+    _dispatch(
+        db,
+        user_id,
+        job_id,
+        config,
+        lambda q: lane_separate_task.apply_async(args=[job_id, config], queue="stems"),
+    )
+
+
+def dispatch_pack_preview(db: Session, user_id: uuid.UUID, job_id: str, config: dict) -> None:
+    _dispatch(
+        db,
+        user_id,
+        job_id,
+        config,
+        lambda q: pack_preview_task.apply_async(args=[job_id, config], queue=q),
+    )
 
 
 def store_variation_sub_task(db: Session, parent_job_id: str, sub_job_id: str, celery_task_id: str) -> None:

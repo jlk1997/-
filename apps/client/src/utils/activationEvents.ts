@@ -17,10 +17,11 @@ export function trackActivation(event: ActivationEvent, payload?: Record<string,
 
 /** Fire activation event at most once per user/device (for funnel steps). */
 export function trackActivationOnce(event: ActivationEvent, payload?: Record<string, unknown>) {
+  // Still use localStorage as a fast-path guard, but the server is the source of truth
   const key = `activation:done:${event}`;
   if (getItem(key)) return Promise.resolve();
   setItem(key, "1");
-  return trackActivation(event, payload);
+  return vibeApi.trackEvent(event, payload).catch(() => {});
 }
 
 export function isActivationEvent(event: string): event is ActivationEvent {

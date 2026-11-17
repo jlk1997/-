@@ -40,7 +40,7 @@ export default function TenantAdminPage() {
   }, [t.noPermission]);
 
   async function saveEmbed() {
-    if (!requireAuth()) return;
+    if (!requireAuth("/packageOps/pages/tenant/index")) return;
     try {
       await vibeApi.updateTenantEmbed({ brand, logo_url: logoUrl, accent_color: accent });
       Taro.showToast({ title: t.saveEmbed, icon: "success" });
@@ -50,7 +50,7 @@ export default function TenantAdminPage() {
   }
 
   async function allocate() {
-    if (!requireAuth()) return;
+    if (!requireAuth("/packageOps/pages/tenant/index")) return;
     try {
       await vibeApi.allocateTenantCredits(allocEmail.trim(), Number(allocAmount) || 0);
       Taro.showToast({ title: t.allocateSuccess, icon: "success" });
@@ -65,8 +65,8 @@ export default function TenantAdminPage() {
   if (!isLoggedIn()) {
     return (
       <PageShell title={t.title} subtitle={t.noPermission} ambient>
-        <AuthBanner message={copy.settingsUi.authBanner} loginLabel={copy.loginUi.login} />
-        <Button variant="primary" block onClick={() => requireAuth()} style={{ marginTop: "24rpx" }}>
+        <AuthBanner message={copy.settingsUi.authBanner} loginLabel={copy.loginUi.login} next="/packageOps/pages/tenant/index" />
+        <Button variant="primary" block onClick={() => requireAuth("/packageOps/pages/tenant/index")} style={{ marginTop: "24rpx" }}>
           {copy.loginUi.login}
         </Button>
       </PageShell>

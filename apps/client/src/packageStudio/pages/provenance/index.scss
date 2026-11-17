@@ -7,7 +7,7 @@
   padding: $space-md;
   margin-bottom: $space-sm;
   background: $obsidian;
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border-subtle;
   border-radius: $radius-lg;
 }
 
@@ -33,7 +33,7 @@
   padding: $space-xs $space-sm;
   margin: 0 $space-2xs $space-2xs 0;
   background: $obsidian;
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border-subtle;
   border-radius: $radius-pill;
   color: $text;
   font-size: var(--text-meta);

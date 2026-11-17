@@ -48,8 +48,8 @@ export default function PlaylistsPage() {
   if (!isLoggedIn()) {
     return (
       <PageShell label={copy.navGroups.works} title={p.title} subtitle={p.loginSubtitle} showCredits={false} ambient wide>
-        <AuthBanner message={copy.settingsUi.authBanner} loginLabel={copy.loginUi.login} />
-        <Button variant="primary" block className="auth-gate__cta" onClick={() => requireAuth()}>
+        <AuthBanner message={copy.settingsUi.authBanner} loginLabel={copy.loginUi.login} next={STACK_PAGE_ROUTES.playlists} />
+        <Button variant="primary" block className="auth-gate__cta" onClick={() => requireAuth(STACK_PAGE_ROUTES.playlists)}>
           {copy.loginUi.login}
         </Button>
       </PageShell>

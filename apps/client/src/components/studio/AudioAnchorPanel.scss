@@ -3,7 +3,7 @@
   padding: $space-sm;
   margin-bottom: $space-sm;
   background: $obsidian;
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border-subtle;
   border-radius: $radius-lg;
 }
 
@@ -22,7 +22,7 @@
 .audio-anchor__btn {
   background: $gold-muted !important;
   color: $gold !important;
-  border: 1rpx solid $border-ritual !important;
+  border: 1rpx solid $border-subtle !important;
 }
 
 .audio-anchor__result {

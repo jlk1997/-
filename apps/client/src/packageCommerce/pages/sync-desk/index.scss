@@ -1,0 +1,45 @@
+.sync-desk {
+  padding-bottom: 48rpx;
+}
+
+.sync-desk__cover {
+  width: 120rpx;
+  height: 120rpx;
+  border-radius: 12rpx;
+  background: rgba(255, 255, 255, 0.06);
+  margin-bottom: 12rpx;
+}
+
+.sync-desk__card {
+  padding: 24rpx;
+  margin-bottom: 16rpx;
+  background: var(--surface);
+  border: 1rpx solid var(--border);
+  border-radius: var(--radius-lg);
+
+  &--focus {
+    border-color: rgba(212, 175, 106, 0.55);
+    background:
+      linear-gradient(135deg, rgba(212, 175, 106, 0.16), transparent 55%),
+      var(--surface);
+  }
+}
+
+.sync-desk__title {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 8rpx;
+}
+
+.sync-desk__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  margin-top: 12rpx;
+}
+
+.sync-desk__price {
+  color: var(--gold);
+  font-family: var(--font-mono);
+}

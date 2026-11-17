@@ -7,9 +7,11 @@ import { useLayoutVars } from "../contexts/LayoutVarsProvider";
 import { LAYOUT, layoutLength } from "../platform/layout";
 import { clsx } from "../utils/clsx";
 import { STACK_PAGE_ROUTES } from "../constants/routes";
+import { openStackPage } from "../utils/navigation";
 import { syncNavTitle } from "../utils/syncNavTitle";
 import { AtmosphereLayer, PageHeader, StatPill } from "./ui";
 import { MiniPlayerBar } from "./player/MiniPlayerBar";
+import { LegalFooter } from "./legal/LegalFooter";
 import "./PageShell.scss";
 
 type Props = PropsWithChildren<{
@@ -81,7 +83,7 @@ export function PageShell({
           variant={pillVariant}
           pulse={pillPulse}
           className={credits?.isMember ? "ui-stat-pill--member" : undefined}
-          onClick={() => Taro.navigateTo({ url: STACK_PAGE_ROUTES.pricing })}
+          onClick={() => openStackPage(STACK_PAGE_ROUTES.pricing)}
         />
       )}
     </>
@@ -97,7 +99,7 @@ export function PageShell({
       )}
       style={pageShellStyle}
     >
-      {ambient && <AtmosphereLayer variant={ambientVariant} />}
+      {ambient && ambientVariant !== "default" && <AtmosphereLayer variant={ambientVariant} intensity="low" />}
       {!hideHeader && (
         <PageHeader
           title={title}
@@ -109,6 +111,7 @@ export function PageShell({
         />
       )}
       <View className="page-shell__content">{children}</View>
+      {tabVariant && process.env.TARO_ENV === "h5" ? <LegalFooter /> : null}
       <MiniPlayerBar />
     </View>
   );

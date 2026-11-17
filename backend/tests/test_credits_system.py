@@ -1,20 +1,29 @@
 """Credits gate, task rewards, and refund tests."""
 
 import uuid
+from datetime import datetime
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.database import SessionLocal
 from app.main import app
-from app.models.schemas import FeatureFlag, GenerationJob, User, UserCredit, UserTaskProgress, Work
+from app.models.schemas import CreditTransaction, FeatureFlag, GenerationJob, User, UserCredit, UserTaskProgress, Work
 from app.services.auth import create_access_token, hash_password
-from app.services.generation_gate import refund_job_credits_if_needed
+from app.services.generation_gate import refund_job_credits_if_needed, settle_partial_credits
 
 
 @pytest.fixture
 def client():
     return TestClient(app)
+
+
+def _purge_user(db, user_id):
+    db.query(GenerationJob).filter(GenerationJob.owner_id == user_id).delete(synchronize_session=False)
+    db.query(CreditTransaction).filter(CreditTransaction.user_id == user_id).delete(synchronize_session=False)
+    db.query(UserTaskProgress).filter(UserTaskProgress.user_id == user_id).delete(synchronize_session=False)
+    db.query(UserCredit).filter(UserCredit.user_id == user_id).delete(synchronize_session=False)
+    db.query(User).filter(User.id == user_id).delete(synchronize_session=False)
 
 
 def _ensure_credits_gate_on(db):
@@ -44,6 +53,7 @@ def test_credits_gate_blocks_generation_at_zero_balance(client):
             email=f"{username}@test.local",
             username=username,
             hashed_password=hash_password("testpass123"),
+            ai_notice_accepted_at=datetime.utcnow(),
         )
         db.add(user)
         db.flush()
@@ -60,9 +70,7 @@ def test_credits_gate_blocks_generation_at_zero_balance(client):
         assert res.status_code == 402, res.text
     finally:
         if user_id:
-            db.query(UserTaskProgress).filter(UserTaskProgress.user_id == user_id).delete(synchronize_session=False)
-            db.query(UserCredit).filter(UserCredit.user_id == user_id).delete(synchronize_session=False)
-            db.query(User).filter(User.id == user_id).delete(synchronize_session=False)
+            _purge_user(db, user_id)
             db.commit()
         db.close()
 
@@ -95,9 +103,7 @@ def test_complete_task_increases_balance():
         assert row.balance == 5 + result["credits_granted"]
     finally:
         if user_id:
-            db.query(UserTaskProgress).filter(UserTaskProgress.user_id == user_id).delete(synchronize_session=False)
-            db.query(UserCredit).filter(UserCredit.user_id == user_id).delete(synchronize_session=False)
-            db.query(User).filter(User.id == user_id).delete(synchronize_session=False)
+            _purge_user(db, user_id)
             db.commit()
         db.close()
 
@@ -140,8 +146,57 @@ def test_refund_job_credits_if_needed():
         if job_id:
             db.query(GenerationJob).filter(GenerationJob.id == job_id).delete(synchronize_session=False)
         if user_id:
-            db.query(UserCredit).filter(UserCredit.user_id == user_id).delete(synchronize_session=False)
-            db.query(User).filter(User.id == user_id).delete(synchronize_session=False)
+            _purge_user(db, user_id)
+            db.commit()
+        db.close()
+
+
+@pytest.mark.requires_db
+def test_settle_partial_credits():
+    suffix = uuid.uuid4().hex[:8]
+    username = f"partial_user_{suffix}"
+    db = SessionLocal()
+    user_id = None
+    job_id = None
+    try:
+        user = User(
+            email=f"{username}@test.local",
+            username=username,
+            hashed_password=hash_password("testpass123"),
+        )
+        db.add(user)
+        db.flush()
+        user_id = user.id
+        db.add(UserCredit(user_id=user.id, balance=0))
+        db.flush()
+        job = GenerationJob(
+            owner_id=user.id,
+            job_type="playlist",
+            status="failed",
+            progress=0.0,
+            config={"credits_charged": 3},
+        )
+        db.add(job)
+        db.commit()
+        job_id = job.id
+
+        refunded = settle_partial_credits(db, job, total_expected=3, total_delivered=2)
+        assert refunded == 1
+        db.refresh(job)
+        assert job.config.get("credits_settled") is True
+
+        row = db.query(UserCredit).filter(UserCredit.user_id == user.id).first()
+        assert row is not None
+        assert row.balance == 1
+
+        # Idempotent: calling again returns 0
+        refunded_again = settle_partial_credits(db, job, total_expected=3, total_delivered=2)
+        assert refunded_again == 0
+    finally:
+        if job_id:
+            db.query(GenerationJob).filter(GenerationJob.id == job_id).delete(synchronize_session=False)
+        if user_id:
+            _purge_user(db, user_id)
             db.commit()
         db.close()
 
@@ -166,6 +221,7 @@ def test_remix_response_includes_credits_balance(client, monkeypatch):
             email=f"{remixer_name}@test.local",
             username=remixer_name,
             hashed_password=hash_password("testpass123"),
+            ai_notice_accepted_at=datetime.utcnow(),
         )
         db.add_all([owner, remixer])
         db.flush()
@@ -186,8 +242,8 @@ def test_remix_response_includes_credits_balance(client, monkeypatch):
         work_id = work.id
 
         monkeypatch.setattr(
-            "app.api.routes.community.generate_single_task.apply_async",
-            lambda *args, **kwargs: None,
+            "app.services.job_dispatch.generate_single_task.apply_async",
+            lambda *args, **kwargs: type("Task", (), {"id": "test-remix-task"})(),
         )
 
         token = create_access_token(str(remixer.id))
@@ -206,7 +262,6 @@ def test_remix_response_includes_credits_balance(client, monkeypatch):
             db.query(Work).filter(Work.id == work_id).delete(synchronize_session=False)
         for uid in (owner_id, remixer_id):
             if uid:
-                db.query(UserCredit).filter(UserCredit.user_id == uid).delete(synchronize_session=False)
-                db.query(User).filter(User.id == uid).delete(synchronize_session=False)
+                _purge_user(db, uid)
         db.commit()
         db.close()

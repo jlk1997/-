@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>安装比特音创作者连接器</title>
+    <style>
+      body { font: 16px/1.6 "Segoe UI", "PingFang SC", sans-serif; max-width: 680px; margin: 32px auto; padding: 0 16px; color: #1b1b1b; }
+      h1 { font-size: 22px; }
+      ol { padding-left: 1.2em; }
+      code { background: #f3efe6; padding: 0 4px; border-radius: 4px; }
+      .note { color: #555; }
+    </style>
+  </head>
+  <body>
+    <h1>安装比特音创作者连接器</h1>
+    <p>给<strong>个人代发</strong>用户：授权你自己已经登录的店后台。厂牌用户不用装，平台席位由农场收割。</p>
+    <ol>
+      <li>打开 Chrome，地址栏输入 <code>chrome://extensions</code>。</li>
+      <li>打开右上角「开发者模式」。</li>
+      <li>点「加载已解压的扩展程序」，选仓库里的 <code>apps/creator-connector</code>；或先运行 <code>npm run pack:connector</code>，解压 zip 再加载那个文件夹。</li>
+      <li>回到比特音创作者中心 → 账户，点「发送到已安装的扩展」。扩展图标会提示已配对。</li>
+      <li>打开已登录的网易 / QQ / Spotify 等音乐人后台，点扩展里的「把当前后台交给比特音」。</li>
+    </ol>
+    <p class="note">装好后会打开工作台。Chrome 开着时才会自动进对账页、优先读官方 CSV。关掉浏览器不会继续抄你的私号。扩展不填密码、不点发布、也不假装官方 API。收割成功、登录墙、对账表读不到都会通知。</p>
+  </body>
+</html>

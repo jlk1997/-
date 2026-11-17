@@ -7,6 +7,12 @@ export function resolveMediaUrl(url: string): string {
   if (!url) return url;
   if (/^https?:\/\//i.test(url)) return url;
   const base = API_BASE.replace(/\/$/, "");
+  if (!base) return url.startsWith("/") ? url : `/${url}`;
+  if (url === base || url.startsWith(`${base}/`)) return url;
+  if (url.startsWith("/api/") && (base === "/api/v1" || base.endsWith("/api/v1"))) {
+    const origin = base === "/api/v1" ? "" : base.slice(0, -"/api/v1".length);
+    return origin ? `${origin}${url}` : url;
+  }
   return url.startsWith("/") ? `${base}${url}` : `${base}/${url}`;
 }
 
@@ -58,6 +64,40 @@ export async function saveVideoFromUrl(url: string, filename = "mood-mv.mp4"): P
     const a = document.createElement("a");
     a.href = resolved;
     a.download = filename;
+    a.rel = "noopener";
+    a.target = "_blank";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    return;
+  }
+  await Taro.setClipboardData({ data: resolved });
+}
+
+function safeDownloadName(filename: string, fallback: string) {
+  const cleaned = filename.replace(/[\\/:*?"<>|]+/g, "_").trim();
+  return cleaned || fallback;
+}
+
+/** Download remote audio/file and persist it (WeChat local file or H5 save). */
+export async function saveFileFromUrl(url: string, filename = "export.bin"): Promise<void> {
+  const resolved = resolveMediaUrl(url);
+  const name = safeDownloadName(filename, "export.bin");
+  if (process.env.TARO_ENV === "weapp") {
+    const dl = await Taro.downloadFile({ url: resolved });
+    if (dl.statusCode !== 200 || !dl.tempFilePath) throw new Error("download failed");
+    try {
+      await Taro.openDocument({ filePath: dl.tempFilePath, showMenu: true });
+      return;
+    } catch {
+      await Taro.saveFile({ tempFilePath: dl.tempFilePath });
+      return;
+    }
+  }
+  if (typeof window !== "undefined") {
+    const a = document.createElement("a");
+    a.href = resolved;
+    a.download = name;
     a.rel = "noopener";
     a.target = "_blank";
     document.body.appendChild(a);

@@ -1,3 +1,5 @@
+export * from "./mix-graph";
+export * from "./lyrics-structure";
 export * from "./music-creative-spec";
 export * from "./studio-types";
 export * from "./player-types";

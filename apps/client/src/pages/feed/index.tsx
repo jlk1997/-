@@ -1,24 +1,32 @@
 import { useCallback, useEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
 import { Text, View } from "@tarojs/components";
-import Taro, { usePullDownRefresh, useDidShow, useShareAppMessage } from "@tarojs/taro";
+import Taro, { usePullDownRefresh, useDidShow, useShareAppMessage, useRouter } from "@tarojs/taro";
 import { useLocale } from "@vibe-sorcery/i18n";
 import { workToPlayerTrack } from "@vibe-sorcery/types";
 import { PageShell } from "../../components/PageShell";
 import { FeedPostItem } from "../../components/community/FeedPostItem";
+import { OfficialListenShelf } from "../../components/community/OfficialListenShelf";
+import { SameStyleWall, type SameStyleWallItem } from "../../components/community/SameStyleWall";
 import { ActivityFeedItem, type ActivityEvent } from "../../components/community/ActivityFeedItem";
 import { RisingCreatorsRow, type RisingCreator } from "../../components/community/RisingCreatorsRow";
+import { WinnerReleaseBanner } from "../../components/community/WinnerReleaseBanner";
+import { WeekDropBanner } from "../../components/community/WeekDropBanner";
+import { ChallengesRow } from "../../components/community/ChallengesRow";
 import { DuelsRow } from "../../components/community/DuelsRow";
-import { MoodRadioRow } from "../../components/engagement/MoodRadioRow";
 import { AuthBanner, ChipGroup, EmptyState, Icon, LoadingSkeleton, SegmentedControl, showError, showSuccess } from "../../components/ui";
+import { LaunchHonestyBanner } from "../../components/commercial/LaunchHonestyBanner";
 import { CoachMarks } from "../../components/onboarding/CoachMarks";
-import { openStackPage } from "../../utils/navigation";
-import { STACK_PAGE_ROUTES, socialPage } from "../../constants/routes";
+import { hapticLight } from "../../utils/haptic";
+import { openRadioPage, openStackPage } from "../../utils/navigation";
+import { STACK_PAGE_ROUTES, socialPage, stackPage } from "../../constants/routes";
 import { exitImmersivePlayerLayout } from "../../platform/layout";
 import { workSharePayload } from "../../platform/share";
 import { vibeApi, type FeedPost } from "../../services/api";
 import { bootstrapAuth, isLoggedIn, requireAuth } from "../../utils/auth";
 import { useCreditsOptional } from "../../contexts/CreditsProvider";
 import { consumeFeedHighlightPostId } from "../../utils/communityNav";
+import { captureReferralFromQuery } from "../../platform/referral";
+import { getItem } from "../../platform/storage";
 import { readPageCache, writePageCache } from "../../utils/pageCache";
 import "./index.scss";
 import "../../styles/tab-page.scss";
@@ -31,6 +39,7 @@ const DerivativeSheet = lazy(() =>
 );
 
 const FEED_CACHE_TTL_MS = 60_000;
+const FEED_NEXT = "/pages/feed/index";
 
 type FeedCachePayload = {
   posts: FeedPost[];
@@ -43,10 +52,12 @@ type FeedCachePayload = {
 export default function FeedPage() {
   const { copy } = useLocale();
   const d = copy.discoverUi;
+  const router = useRouter();
 
   useShareAppMessage((res) => {
     const ds = (res?.target as { dataset?: Record<string, string> } | undefined)?.dataset;
     if (ds?.workid) return workSharePayload(ds.workid, ds.title || copy.brand.name);
+    if (ds?.ref) return { title: copy.progressUi.referralTitle, path: `/pages/feed/index?ref=${ds.ref}` };
     return { title: copy.brand.name };
   });
   const [posts, setPosts] = useState<FeedPost[]>([]);
@@ -54,6 +65,7 @@ export default function FeedPage() {
   const [loading, setLoading] = useState(true);
   const [postsError, setPostsError] = useState(false);
   const [sort, setSort] = useState<"personalized" | "following" | "latest" | "trending">("personalized");
+  const [sortOpen, setSortOpen] = useState(false);
   const [tag, setTag] = useState("");
   const [tagOptions, setTagOptions] = useState<string[]>([]);
   const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
@@ -74,7 +86,9 @@ export default function FeedPage() {
   const [activityLoading, setActivityLoading] = useState(false);
   const [activityError, setActivityError] = useState(false);
   const [tipTarget, setTipTarget] = useState<{ workId: string; title?: string } | null>(null);
-  const eco = copy.ecosystemUi;
+  const [sameStyle, setSameStyle] = useState<SameStyleWallItem[]>([]);
+  const [sameStyleError, setSameStyleError] = useState(false);
+  const [adventureMore, setAdventureMore] = useState(false);
 
   const cacheKey = useMemo(() => `feed:${sort}:${tag}`, [sort, tag]);
 
@@ -107,11 +121,14 @@ export default function FeedPage() {
       try {
         setPostsError(false);
         const apiSort = sort === "trending" ? "popular" : sort;
-        const [data, rising, meRes] = await Promise.all([
+        const [data, rising, meRes, wall] = await Promise.all([
           vibeApi.getFeed(apiSort, tag || undefined),
           vibeApi.getRisingCreators().catch(() => [] as RisingCreator[]),
           loggedIn ? vibeApi.me().catch(() => null) : Promise.resolve(null),
+          vibeApi.listSameStyleWall().catch(() => null),
         ]);
+        setSameStyleError(!wall);
+        setSameStyle(wall?.works || []);
         if (meRes?.username) setMyUsername(meRes.username);
         if (meRes?.id) setMyUserId(meRes.id);
 
@@ -154,6 +171,7 @@ export default function FeedPage() {
   }, [load]);
 
   useDidShow(() => {
+    captureReferralFromQuery(router.params as Record<string, unknown>);
     exitImmersivePlayerLayout();
     const highlight = consumeFeedHighlightPostId();
     if (highlight) {
@@ -162,7 +180,11 @@ export default function FeedPage() {
     }
     if (!initialLoadDoneRef.current) return;
     const cached = readPageCache<FeedCachePayload>(cacheKey, FEED_CACHE_TTL_MS);
-    void load(cached ? { background: true, force: true } : { force: true });
+    if (cached) {
+      applyPayload(cached);
+      return;
+    }
+    void load({ force: true });
   });
 
   useEffect(() => {
@@ -189,13 +211,19 @@ export default function FeedPage() {
     () =>
       posts
         .filter((p) => p.work?.audio_url)
-        .map((p) => workToPlayerTrack(p.work!, { artist: p.author_username, source: "feed" })),
-    [posts]
+        .map((p) =>
+          workToPlayerTrack(p.work!, {
+            artist: p.author_username,
+            source: "feed",
+            isOwner: myUsername ? p.author_username === myUsername : undefined,
+          }),
+        ),
+    [posts, myUsername]
   );
 
   const openTip = useCallback(
     (workId: string) => {
-      if (!requireAuth()) return;
+      if (!requireAuth(FEED_NEXT)) return;
       const post = posts.find((p) => p.work?.id === workId);
       setTipTarget({ workId, title: post?.work?.title });
     },
@@ -222,7 +250,7 @@ export default function FeedPage() {
   }, [feedView, loadActivity]);
 
   const toggleLike = useCallback(async (postId: string) => {
-    if (!requireAuth()) return;
+    if (!requireAuth(FEED_NEXT)) return;
     const wasLiked = likedIds.has(postId);
     const seq = (likeSeqRef.current.get(postId) ?? 0) + 1;
     likeSeqRef.current.set(postId, seq);
@@ -261,12 +289,12 @@ export default function FeedPage() {
   }, [likedIds, load, d.loadError]);
 
   const collect = useCallback(async (workId: string) => {
-    if (!requireAuth()) return;
+    if (!requireAuth(FEED_NEXT)) return;
     try {
       const res = await vibeApi.collectWork(workId);
       if (res.collected) {
         setCollectedIds((prev) => new Set(prev).add(workId));
-        Taro.showToast({ title: d.collectSuccess, icon: "success" });
+        showSuccess(d.collectSuccess);
       } else {
         setCollectedIds((prev) => {
           const next = new Set(prev);
@@ -281,12 +309,12 @@ export default function FeedPage() {
   }, [d.collectSuccess, d.collectRemoved, d.loadError]);
 
   const openRemix = useCallback((workId: string, title?: string) => {
-    if (!requireAuth()) return;
+    if (!requireAuth(FEED_NEXT)) return;
     setDerivative({ workId, title: title || copy.pages.discover.title });
   }, [copy.pages.discover.title]);
 
   const reportPost = useCallback(async (postId: string) => {
-    if (!requireAuth()) return;
+    if (!requireAuth(FEED_NEXT)) return;
     try {
       await vibeApi.reportPost(postId, "inappropriate");
       Taro.showToast({ title: d.reportSuccess, icon: "success" });
@@ -323,27 +351,26 @@ export default function FeedPage() {
               </View>
               <Text className="feed-head__title">{copy.pages.discover.title}</Text>
             </View>
-            <View className="feed-head__search" onClick={() => openStackPage(STACK_PAGE_ROUTES.search)}>
-              <Icon name="search" size="md" />
+            <View className="feed-head__tools">
+              <View
+                className={`feed-head__activity${feedView === "activity" ? " feed-head__activity--on" : ""}`}
+                onClick={() => setFeedView(feedView === "activity" ? "posts" : "activity")}
+              >
+                <Text className="feed-head__activity-text">{d.activityDoor}</Text>
+              </View>
+              <View className="feed-head__search" onClick={() => openStackPage(STACK_PAGE_ROUTES.search)}>
+                <Icon name="search" size="md" />
+              </View>
             </View>
           </View>
         </View>
-
-      {!loggedIn && feedView === "posts" && <AuthBanner message={d.authBanner} loginLabel={d.authBannerAction} />}
-
-      <SegmentedControl
-        className="feed-view"
-        options={[
-          { value: "posts", label: d.feedViewPosts },
-          { value: "activity", label: d.feedViewActivity },
-        ]}
-        value={feedView}
-        onChange={(v) => setFeedView(v as "posts" | "activity")}
-      />
+        <LaunchHonestyBanner surface="feed" />
 
       {feedView === "activity" && (
         <>
-          {!loggedIn && <AuthBanner message={d.activityLoginHint || d.authBanner} loginLabel={d.authBannerAction} />}
+          {!loggedIn && (
+            <AuthBanner message={d.activityLoginHint || d.authBanner} loginLabel={d.authBannerAction} next={FEED_NEXT} />
+          )}
           {loggedIn && (
             <SegmentedControl
               className="feed-activity-scope"
@@ -360,12 +387,18 @@ export default function FeedPage() {
             <EmptyState
               iconName="feed"
               title={d.activityLoadFail}
-              actionLabel={d.retry || "重试"}
+              actionLabel={d.retry}
               onAction={() => void loadActivity()}
             />
           )}
           {loggedIn && !activityLoading && !activityError && activityEvents.length === 0 && (
-            <EmptyState iconName="feed" title={d.activityEmpty} description={d.activityEmptyDesc} />
+            <EmptyState
+              iconName="feed"
+              title={d.activityEmpty}
+              description={d.activityEmptyDesc}
+              actionLabel={copy.engagementUi.radioOpen}
+              onAction={() => openRadioPage()}
+            />
           )}
           {loggedIn &&
             !activityLoading &&
@@ -378,52 +411,111 @@ export default function FeedPage() {
 
       {feedView === "posts" && (
         <>
-          <SegmentedControl
-            className="feed-sort"
-            options={[
-              { value: "personalized", label: d.sortPersonalized },
-              ...(loggedIn ? [{ value: "following" as const, label: d.sortFollowing }] : []),
-              { value: "latest", label: d.sortLatest },
-              { value: "trending", label: d.sortPopular },
-            ]}
-            value={sort}
-            onChange={setSort}
+          <View className="feed-wall coach-anchor-wall">
+          <SameStyleWall
+            works={sameStyle}
+            loading={loading}
+            empty={!sameStyleError}
+            error={sameStyleError}
+            onRetry={() => void load({ force: true })}
           />
-
-          {loggedIn && sort === "personalized" && !loading && (
-            <View className="feed-personalized-hint">
-              <Icon name="sigil" accent size="sm" />
-              <Text className="feed-personalized-hint__text">{d.personalizedHint}</Text>
-            </View>
-          )}
-
-          {tagOptions.length > 0 && (
-            <View className="feed-tags">
-              <ChipGroup
-                options={[{ value: "", label: d.tagAll }, ...tagOptions.map((t) => ({ value: t, label: `#${t}` }))]}
-                value={tag}
-                onChange={setTag}
-              />
-            </View>
-          )}
-
-          {!loading && risingCreators.length > 0 && <RisingCreatorsRow creators={risingCreators} />}
-
-          <View className="feed-social-links">
-            <View className="feed-social-links__item" onClick={() => Taro.navigateTo({ url: socialPage("charts") })}>
-              <Icon name="feed" size="sm" accent />
-              <Text>{copy.socialUi.chartsEntry}</Text>
-            </View>
-            <View className="feed-social-links__item" onClick={() => Taro.navigateTo({ url: socialPage("duels") })}>
-              <Icon name="remix" size="sm" accent />
-              <Text>{copy.socialUi.duelsEntry}</Text>
-            </View>
           </View>
 
-          {loggedIn && <DuelsRow />}
-          {loggedIn && <MoodRadioRow />}
+          <View className="feed-adventure coach-anchor-adventure">
+            {adventureMore ? (
+              <>
+            <View
+              className="feed-adventure__hero"
+              onClick={() => {
+                hapticLight();
+                openRadioPage({ station: getItem("radio:lastStation") || undefined });
+              }}
+            >
+              <Icon name="music" size="md" accent />
+              <View className="feed-adventure__hero-body">
+                <Text className="feed-adventure__hero-title">{copy.socialUi.radioEntry}</Text>
+              </View>
+            </View>
+              <View className="feed-adventure__row">
+                <View
+                  className="feed-adventure__door"
+                  onClick={() => {
+                    hapticLight();
+                    openStackPage(socialPage("duels"));
+                  }}
+                >
+                  <Icon name="remix" size="sm" accent />
+                  <Text>{copy.socialUi.duelsEntry}</Text>
+                </View>
+                <View
+                  className="feed-adventure__door"
+                  onClick={() => {
+                    hapticLight();
+                    openStackPage(stackPage("challenges"));
+                  }}
+                >
+                  <Icon name="flag" size="sm" accent />
+                  <Text>{copy.challengesUi.title}</Text>
+                </View>
+                <View
+                  className="feed-adventure__door"
+                  onClick={() => {
+                    hapticLight();
+                    openStackPage(socialPage("charts"));
+                  }}
+                >
+                  <Icon name="feed" size="sm" accent />
+                  <Text>{copy.socialUi.chartsEntry}</Text>
+                </View>
+              </View>
+              </>
+            ) : (
+              <Text
+                className="feed-adventure__more typo-meta"
+                onClick={() => {
+                  hapticLight();
+                  setAdventureMore(true);
+                }}
+              >
+                {d.adventureMore}
+              </Text>
+            )}
+            {loggedIn && adventureMore ? <WinnerReleaseBanner /> : null}
+            {loggedIn && adventureMore ? <WeekDropBanner /> : null}
+          </View>
+          {adventureMore ? (
+            <>
+              <ChallengesRow />
+              <DuelsRow />
+            </>
+          ) : null}
+
+          <View className="feed-sort-chips">
+            <Text
+              className="feed-sort-chips__door typo-meta"
+              onClick={() => {
+                hapticLight();
+                setSortOpen((v) => !v);
+              }}
+            >
+              {sortOpen ? d.sortDoorOpen : d.sortDoor}
+            </Text>
+            {sortOpen ? (
+            <ChipGroup
+              options={[
+                { value: "personalized", label: d.sortPersonalized },
+                ...(loggedIn ? [{ value: "following", label: d.sortFollowing }] : []),
+                { value: "latest", label: d.sortLatest },
+                { value: "trending", label: d.sortPopular },
+              ]}
+              value={sort}
+              onChange={(v) => setSort(v as typeof sort)}
+            />
+            ) : null}
+          </View>
 
           {loading && <LoadingSkeleton count={3} />}
+          {!loading && <OfficialListenShelf />}
           {!loading && postsError && (
             <EmptyState
               iconName="discover"
@@ -435,10 +527,13 @@ export default function FeedPage() {
           {!loading && !postsError && posts.length === 0 && (
             <EmptyState
               iconName="discover"
-              title={d.emptyTitle}
-              description={d.emptyDesc}
-              actionLabel={copy.actions.enterStudio}
-              onAction={() => Taro.switchTab({ url: "/pages/create/index" })}
+              title={sort === "following" ? d.emptyFollowingFeed : d.emptyTitle}
+              description={sort === "following" ? d.emptyFollowingDesc : d.emptyDesc}
+              actionLabel={sort === "following" ? d.emptyFollowingCta : d.emptyCreate}
+              onAction={() => {
+                if (sort === "following") setSort("personalized");
+                else Taro.switchTab({ url: "/pages/create/index" });
+              }}
             />
           )}
 
@@ -462,6 +557,7 @@ export default function FeedPage() {
               onCommentToggle={toggleComments}
             />
           ))}
+          {!loading && posts.length > 0 && <RisingCreatorsRow creators={risingCreators} />}
           {derivative && (
             <Suspense fallback={null}>
               <DerivativeSheet

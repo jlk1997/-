@@ -14,6 +14,8 @@ async def resolve_creative_spec(
     *,
     preset: dict[str, Any] | None = None,
     parse_if_sparse: bool = True,
+    db: Any | None = None,
+    user_id: str | None = None,
 ) -> MusicCreativeSpec:
     """Merge manual spec, legacy fields, preset, and optional NLP parse."""
     manual = spec_from_legacy_config(config)
@@ -23,7 +25,7 @@ async def resolve_creative_spec(
     if text and not manual.instruments and not manual.genres:
         parsed = parse_music_intent_keywords(text)
         if parse_if_sparse and not parsed.has_user_constraints() and len(text) >= 20:
-            parsed = await parse_music_intent(text)
+            parsed = await parse_music_intent(text, db=db, user_id=user_id)
     elif text and not manual.instruments:
         parsed = parse_music_intent_keywords(text)
 

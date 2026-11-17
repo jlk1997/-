@@ -14,7 +14,9 @@ import { PlayerScrubber } from "../../../components/player/PlayerScrubber";
 import { BottomSheet, Icon, ShareButton } from "../../../components/ui";
 import { shareWork, workSharePayload } from "../../../platform/share";
 import { vibeApi } from "../../../services/api";
-import { currentPageRoute, isImmersiveRoute } from "../../../constants/routes";
+import { currentPageRoute, isImmersiveRoute, STACK_PAGE_ROUTES, studioPage } from "../../../constants/routes";
+import { openRadioPage } from "../../../utils/navigation";
+import { getItem } from "../../../platform/storage";
 import { NOW_PLAYING_EVENTS } from "../../../constants/events";
 import { enterImmersivePlayerLayout, exitImmersivePlayerLayout } from "../../../platform/layout";
 import { bootstrapAuth, isLoggedIn, requireAuth } from "../../../utils/auth";
@@ -68,11 +70,13 @@ export default function NowPlayingPage() {
   const creditsCtx = useCreditsOptional();
   const { postId, setPostId } = useWorkPostStatus(currentTrack?.id);
 
-  useShareAppMessage(() =>
-    currentTrack?.id
+  useShareAppMessage((res) => {
+    const ds = (res?.target as { dataset?: Record<string, string> } | undefined)?.dataset;
+    if (ds?.workid) return workSharePayload(ds.workid, ds.title || copy.brand.name);
+    return currentTrack?.id
       ? workSharePayload(currentTrack.id, currentTrack.title)
-      : { title: copy.brand.name }
-  );
+      : { title: copy.brand.name };
+  });
   const swipeStartX = useRef(0);
   const routeTick = useRouteTick();
   const onThisPage = useMemo(() => isImmersiveRoute(currentPageRoute()), [routeTick]);
@@ -166,7 +170,7 @@ export default function NowPlayingPage() {
   }, [currentTime, duration, lyricLines.length, lyricTimeline]);
 
   async function publishWork(caption: string, opts: { allowRemix: boolean; license: string }) {
-    if (!currentTrack?.id || !requireAuth()) return;
+    if (!currentTrack?.id || !requireAuth(STACK_PAGE_ROUTES.nowPlaying)) return;
     const post = await vibeApi.createPost(currentTrack.id, caption, {
       allow_remix: opts.allowRemix,
       license: opts.license,
@@ -179,7 +183,7 @@ export default function NowPlayingPage() {
   }
 
   async function toggleCollect() {
-    if (!currentTrack?.id || !requireAuth()) return;
+    if (!currentTrack?.id || !requireAuth(STACK_PAGE_ROUTES.nowPlaying)) return;
     try {
       const res = await vibeApi.collectWork(currentTrack.id);
       setCollected(res.collected);
@@ -236,7 +240,7 @@ export default function NowPlayingPage() {
         }}
       >
         {panel === "disc" ? (
-          <NetEaseDisc coverUrl={currentTrack.coverUrl || undefined} playing={isPlaying} />
+          <NetEaseDisc coverUrl={currentTrack.coverUrl || undefined} title={currentTrack.title} playing={isPlaying} />
         ) : (
           <PlayerLyricPanel lines={lyricLines} activeIndex={activeLyricIndex} emptyHint={pl.lyricHint} />
         )}
@@ -264,7 +268,18 @@ export default function NowPlayingPage() {
         )}
         <View
           className="now-playing__action"
-          onClick={() => currentTrack.id && Taro.navigateTo({ url: `/pages/provenance/index?workId=${currentTrack.id}` })}
+          onClick={() =>
+            openRadioPage({
+              workId: currentTrack.id,
+              station: currentTrack.station || getItem("radio:lastStation") || undefined,
+            })
+          }
+        >
+          <Icon name="music" accent={currentTrack.source === "radio"} size="lg" />
+        </View>
+        <View
+          className="now-playing__action"
+          onClick={() => currentTrack.id && Taro.navigateTo({ url: studioPage("provenance", { workId: currentTrack.id }) })}
         >
           <Icon name="info" size="lg" />
         </View>

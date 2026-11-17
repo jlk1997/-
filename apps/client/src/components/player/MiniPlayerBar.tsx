@@ -1,15 +1,18 @@
 import { useEffect, useState } from "react";
 import { View, Text, Image } from "@tarojs/components";
 import Taro from "@tarojs/taro";
-import { STACK_PAGE_ROUTES } from "../../constants/routes";
+import { STACK_PAGE_ROUTES, currentLayoutRoute } from "../../constants/routes";
 import { moodAccent } from "@vibe-sorcery/types";
-import { usePlayer } from "../../contexts/PlayerProvider";
+import { usePlayerProgress, usePlayerTransport } from "../../contexts/PlayerProvider";
 import { extractCoverAccent, useTheme } from "../../contexts/ThemeProvider";
-import { currentLayoutRoute } from "../../constants/routes";
 import { useLayoutVars } from "../../contexts/LayoutVarsProvider";
 import { useRouteTick } from "../../hooks/useRouteTick";
 import { NOW_PLAYING_EVENTS } from "../../constants/events";
+import { openRadioPage, openStackPage } from "../../utils/navigation";
+import { getItem } from "../../platform/storage";
 import { Icon } from "../ui";
+import { CoverPlate } from "../ui/CoverPlate";
+import { hapticLight } from "../../utils/haptic";
 import "./MiniPlayerBar.scss";
 
 const isWeapp = process.env.TARO_ENV === "weapp";
@@ -20,7 +23,8 @@ function currentRoute(): string {
 
 /** 网易云风格底部迷你播放条 */
 export function MiniPlayerBar() {
-  const { currentTrack, isPlaying, currentTime, duration, togglePlay } = usePlayer();
+  const { currentTrack, isPlaying, togglePlay } = usePlayerTransport();
+  const { currentTime, duration } = usePlayerProgress();
   const { setMood } = useTheme();
   const { setMiniPlayerVisible } = useLayoutVars();
   const routeTick = useRouteTick();
@@ -69,11 +73,11 @@ export function MiniPlayerBar() {
       <View className="mini-player__progress">
         <View className="mini-player__progress-fill" style={{ width: `${progressPct}%` }} />
       </View>
-      <View className="mini-player__main" onClick={() => Taro.navigateTo({ url: STACK_PAGE_ROUTES.nowPlaying })}>
+      <View className="mini-player__main" onClick={() => openStackPage(STACK_PAGE_ROUTES.nowPlaying)}>
         {currentTrack.coverUrl ? (
           <Image className="mini-player__cover" src={currentTrack.coverUrl} mode="aspectFill" />
         ) : (
-          <View className="mini-player__cover mini-player__cover--fallback" />
+          <CoverPlate className="mini-player__cover" title={currentTrack.title} seed={currentTrack.id} size="sm" />
         )}
         <View className="mini-player__info">
           <Text className={`mini-player__title ${isPlaying ? "mini-player__title--active" : ""}`}>{currentTrack.title}</Text>
@@ -84,6 +88,19 @@ export function MiniPlayerBar() {
         className="mini-player__btn"
         onClick={(e) => {
           e.stopPropagation();
+          openRadioPage({
+            workId: currentTrack.id,
+            station: currentTrack.station || getItem("radio:lastStation") || undefined,
+          });
+        }}
+      >
+        <Icon name="music" accent={currentTrack.source === "radio"} />
+      </View>
+      <View
+        className="mini-player__btn"
+        onClick={(e) => {
+          e.stopPropagation();
+          hapticLight();
           togglePlay();
         }}
       >

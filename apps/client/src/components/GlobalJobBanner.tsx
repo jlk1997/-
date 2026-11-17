@@ -5,6 +5,7 @@ import { useActiveJobOptional } from "../contexts/ActiveJobProvider";
 import { currentPageRoute, isTabUrl } from "../constants/routes";
 import { useRouteTick } from "../hooks/useRouteTick";
 import { canPreview } from "../utils/generationPhases";
+import { openWorkbench } from "../utils/workbenchNav";
 import { Icon } from "./ui";
 import "./GlobalJobBanner.scss";
 
@@ -12,7 +13,7 @@ const HIDE_BANNER_STATUSES = new Set(["cancelled"]);
 
 function phaseIcon(phase?: string | null, status?: string): "music" | "create" | "journey" | "remix" {
   if (!phase) return "create";
-  if (status === "post_processing" || phase === "post_processing") return "create";
+  if (status === "post_processing" || phase === "post_processing" || phase === "rendering") return "create";
   if (phase === "composing" || phase.startsWith("track_")) return "music";
   if (phase === "audio_ready") return "music";
   if (phase === "cover" || phase === "provenance" || phase === "hls" || phase === "waveform") return "create";
@@ -39,6 +40,10 @@ export function GlobalJobBanner() {
     isCompleted || canPreview(job.phase, job.workId ? { work_id: job.workId, audio_url: "ready" } : null);
 
   function openJob() {
+    if (isCompleted && job?.jobType !== "workbench" && job?.workId) {
+      openWorkbench(job.workId);
+      return;
+    }
     if (job?.returnUrl.startsWith("/pages/") && isTabUrl(job.returnUrl)) {
       Taro.switchTab({ url: job.returnUrl.split("?")[0] });
       return;
@@ -54,7 +59,9 @@ export function GlobalJobBanner() {
   const bannerText = isFailed
     ? job.message || g.failed
     : isCompleted
-      ? g.bannerCompleted
+      ? job.jobType === "workbench"
+        ? g.bannerWorkbench
+        : g.bannerCompleted
       : job.message || g.bannerRunning;
 
   return (

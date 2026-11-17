@@ -40,12 +40,15 @@ def get_provenance(
     work = _get_work(db, work_id)
     _assert_work_visible(work, user)
 
+    from app.services.provenance import collect_human_edits
+
     lineage = build_lineage(db, work.id)
     return ProvenanceResponse(
         work_id=work_id,
         lineage=lineage,
         pipeline_version=settings.pipeline_version,
         verification_url=f"/provenance/{work_id}",
+        human_edits=collect_human_edits(lineage),
     )
 
 

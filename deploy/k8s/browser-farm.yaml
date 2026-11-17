@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: browser-farm
+  labels:
+    app: vibe-sorcery
+    component: browser-farm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      component: browser-farm
+  template:
+    metadata:
+      labels:
+        app: vibe-sorcery
+        component: browser-farm
+    spec:
+      containers:
+        - name: browser-farm
+          image: vibe-sorcery/browser-farm:latest
+          command: ["python", "worker.py", "--loop", "--interval", "20"]
+          envFrom:
+            - configMapRef:
+                name: vibe-config
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"

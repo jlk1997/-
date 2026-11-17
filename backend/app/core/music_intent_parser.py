@@ -255,9 +255,10 @@ async def parse_music_intent(
     text: str,
     *,
     language: str = "zh",
-    minimax_client: Any | None = None,
+    db: Any | None = None,
+    user_id: str | None = None,
 ) -> MusicCreativeSpec:
-    """Parse user description into structured spec (M3 JSON, keyword fallback)."""
+    """Parse user description into structured spec (vendor chat JSON, keyword fallback)."""
     t = (text or "").strip()
     if not t:
         return MusicCreativeSpec()
@@ -265,13 +266,8 @@ async def parse_music_intent(
     if settings.use_mock_ai:
         return parse_music_intent_keywords(t)
 
-    if minimax_client is None:
-        from app.integrations.minimax.client import minimax_client as default_client
-
-        minimax_client = default_client
-
     system = (
-        "You extract music creation constraints from user text for MiniMax music-2.6. "
+        "You extract music creation constraints from user text. "
         "Return ONLY valid JSON with keys: "
         "instruments (array of English instrument names), genres (array), moods (array), "
         "tempo_feel (slow|medium|fast|empty string), bpm (int or null), bpm_range ([lo,hi] or null), "
@@ -281,7 +277,11 @@ async def parse_music_intent(
     )
     user_msg = json.dumps({"text": t, "language": language}, ensure_ascii=False)
     try:
-        raw = await minimax_client.chat_completion(
+        from app.integrations.vendors.router import chat as routed_chat
+
+        raw = await routed_chat(
+            db=db,
+            user_id=user_id,
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": user_msg},
@@ -292,6 +292,6 @@ async def parse_music_intent(
         if isinstance(data, dict):
             return _normalize_parsed(data, t)
     except Exception as exc:
-        logger.warning("parse_music_intent M3 failed, using keywords: %s", exc)
+        logger.warning("parse_music_intent chat failed, using keywords: %s", exc)
 
     return parse_music_intent_keywords(t)

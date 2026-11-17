@@ -1,0 +1,55 @@
+@import "../../styles/_utilities.scss";
+
+.winner-banner {
+  display: flex;
+  align-items: center;
+  gap: $space-sm;
+  padding: $space-sm;
+  margin-bottom: $space-sm;
+  border-radius: $radius-md;
+  background: $obsidian;
+  border: 1rpx solid $border;
+
+  &--bench {
+    border-color: rgba(212, 175, 106, 0.4);
+    background: linear-gradient(145deg, rgba(212, 175, 106, 0.12), $obsidian);
+  }
+}
+
+.winner-banner__cover {
+  width: 88rpx;
+  height: 88rpx;
+  border-radius: $radius-sm;
+  flex-shrink: 0;
+  background: $slate-veil;
+
+  &--empty {
+    background: $slate-veil;
+  }
+}
+
+.winner-banner__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.winner-banner__kicker {
+  display: block;
+  color: $muted;
+  font-size: var(--text-micro);
+}
+
+.winner-banner__title {
+  display: block;
+  color: $text;
+  font-size: var(--text-meta);
+  line-height: 1.4;
+}
+
+.winner-banner__actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: $space-2xs;
+  flex-shrink: 0;
+}

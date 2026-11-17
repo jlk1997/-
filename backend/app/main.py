@@ -1,7 +1,9 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 import logging
+
+import json
 
 from app.api.router import api_router
 from app.config import settings
@@ -14,6 +16,28 @@ from app.db_migrate import run_alembic_upgrade
 from app.startup_checks import validate_production_config
 
 log = logging.getLogger("vibe.startup")
+
+
+class StructuredFormatter(logging.Formatter):
+    def format(self, record):
+        log_data = {
+            "timestamp": self.formatTime(record),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+        if hasattr(record, "request_id"):
+            log_data["request_id"] = record.request_id
+        if record.exc_info:
+            log_data["exception"] = self.formatException(record.exc_info)
+        return json.dumps(log_data, ensure_ascii=False, default=str)
+
+
+if not settings.debug:
+    handler = logging.StreamHandler()
+    handler.setFormatter(StructuredFormatter())
+    logging.root.handlers = [handler]
+    logging.root.setLevel(logging.INFO)
 
 app = FastAPI(title=settings.app_name, version=settings.app_version)
 app.add_middleware(GZipMiddleware, minimum_size=500)
@@ -31,8 +55,15 @@ if settings.sentry_dsn:
     try:
         import sentry_sdk
         from sentry_sdk.integrations.fastapi import FastApiIntegration
-
-        sentry_sdk.init(dsn=settings.sentry_dsn, integrations=[FastApiIntegration()], traces_sample_rate=0.1)
+        from sentry_sdk.integrations.celery import CeleryIntegration
+        from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+        sentry_sdk.init(
+            dsn=settings.sentry_dsn,
+            integrations=[FastApiIntegration(), CeleryIntegration(), SqlalchemyIntegration()],
+            traces_sample_rate=settings.sentry_traces_sample_rate if settings.sentry_traces_sample_rate is not None else 0.1,
+            environment=settings.sentry_environment or ("development" if settings.debug else "production"),
+            release=settings.app_version,
+        )
     except Exception as exc:
         log.warning("Sentry init failed: %s", exc)
 
@@ -65,6 +96,9 @@ def seed_platform_defaults():
                 "Enable generation credits gate (402 when insufficient)",
             ),
             ("multi_tenant", False, "Enable tenant_id isolation on feed and works"),
+            ("dsp_distribution", True, "Enable DSP distribution and creator releases"),
+            ("royalty_wallet", True, "Enable fiat royalty wallet and withdrawals"),
+            ("release_qc", True, "Enable release-ready QC before distribution"),
         ]
         for key, enabled, desc in flags:
             row = db.query(FeatureFlag).filter(FeatureFlag.key == key).first()
@@ -92,10 +126,25 @@ def seed_platform_defaults():
             db.add(Tenant(id=settings.default_tenant_id, name="Default", plan="free"))
         seed_builtin_presets(db)
         from app.services.content_moderation import seed_default_words
+        from app.services.distribution.catalog import seed_distribution_catalog
 
         seed_default_words(db)
+        seed_distribution_catalog(db)
+        from app.services.ecosystem import seed_recipe_catalog
+
+        seed_recipe_catalog(db)
+        from app.services.workbench import seed_official_effect_packs
+
+        seed_official_effect_packs(db)
+        from app.services.catalog_seed import seed_official_catalog
+
+        seed_official_catalog(db)
+        from app.services.seats.service import ensure_platform_seats
+
+        ensure_platform_seats(db, pool_size=int(getattr(settings, "platform_seat_pool_size", 1) or 1))
         db.commit()
     except Exception:
+        log.exception("seed_platform_defaults failed; catalog/radio may stay empty")
         db.rollback()
     finally:
         db.close()
@@ -138,8 +187,18 @@ def startup():
 
 @app.get("/health")
 @app.get("/api/v1/health")
-def health():
-    return collect_health()
+def readiness():
+    from fastapi.responses import JSONResponse
+    result = collect_health()
+    status_val = result.get("status", "ok") if isinstance(result, dict) else "ok"
+    code = 200 if status_val == "ok" else 503
+    return JSONResponse(content=result, status_code=code)
+
+
+@app.get("/livez")
+@app.get("/api/v1/livez")
+def liveness():
+    return {"status": "alive"}
 
 
 @app.get("/health/worker")
@@ -151,10 +210,19 @@ def health_worker():
 
 
 @app.get("/metrics")
-def metrics():
+def metrics(request: Request):
     from fastapi.responses import PlainTextResponse
     from app.observability.metrics import prometheus_text
 
+    token = settings.metrics_token
+    if not token and not settings.debug:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="Metrics token not configured")
+    if token:
+        auth = request.headers.get("Authorization", "")
+        if auth != f"Bearer {token}":
+            from fastapi import HTTPException
+            raise HTTPException(status_code=403, detail="Invalid metrics token")
     return PlainTextResponse(prometheus_text(), media_type="text/plain; version=0.0.4")
 
 

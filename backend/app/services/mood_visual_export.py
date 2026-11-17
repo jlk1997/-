@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.models.schemas import User, Work, WorkExport
-from app.services.credits import deduct_credits
+from app.services.credits import deduct_credits, grant_credits_with_transaction
 from app.services.mood_visual import build_mood_visual_manifest, fetch_work_audio_bytes
 from app.services.storage import get_storage_service
 from app.services.subscriptions import is_active_subscriber
@@ -196,15 +196,21 @@ def render_mood_visual_mp4(slides: list[dict[str, Any]], audio_bytes: bytes) -> 
         return output.read_bytes()
 
 
+def ffmpeg_available() -> bool:
+    try:
+        subprocess.run([settings.ffmpeg_path, "-version"], check=True, capture_output=True, timeout=8)
+        return True
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError, subprocess.TimeoutExpired):
+        return False
+
+
 def export_mood_visual_video(db: Session, user: User, work: Work) -> dict[str, Any]:
     manifest = build_mood_visual_manifest(db, work)
     slides = manifest.get("slides") or []
     if not slides:
         raise HTTPException(status_code=400, detail="No visual content for this work")
-
-    cost = _mv_video_cost(db, user)
-    if cost > 0 and not deduct_credits(db, user.id, cost, source="export_mv_video"):
-        raise HTTPException(status_code=402, detail="Insufficient credits for MV export")
+    if not ffmpeg_available():
+        raise HTTPException(status_code=503, detail="MV export unavailable (ffmpeg required)")
 
     audio_bytes = fetch_work_audio_bytes(work)
     if not audio_bytes:
@@ -214,8 +220,17 @@ def export_mood_visual_video(db: Session, user: User, work: Work) -> dict[str, A
     if not mp4_bytes:
         raise HTTPException(status_code=503, detail="MV export unavailable (ffmpeg required)")
 
+    cost = _mv_video_cost(db, user)
+    if cost > 0 and not deduct_credits(db, user.id, cost, source="export_mv_video"):
+        raise HTTPException(status_code=402, detail="Insufficient credits for MV export")
+
     key = f"mv/{work.id}/{uuid.uuid4().hex}.mp4"
-    storage_key, url = get_storage_service().upload_bytes(mp4_bytes, key, "video/mp4")
+    try:
+        storage_key, url = get_storage_service().upload_bytes(mp4_bytes, key, "video/mp4")
+    except Exception as exc:
+        if cost > 0:
+            grant_credits_with_transaction(db, user.id, cost, source="export_mv_video_refund")
+        raise HTTPException(status_code=500, detail="MV upload failed") from exc
 
     row = WorkExport(
         work_id=work.id,

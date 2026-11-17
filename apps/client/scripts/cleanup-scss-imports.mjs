@@ -23,7 +23,7 @@ const extendFiles = new Set([
   "components/ui/PageHeader.scss",
   "components/ui/ListRow.scss",
   "components/ui/PricingPackCard.scss",
-  "components/studio/RitualTimeline.scss",
+  "components/studio/ProgressTimeline.scss",
   "pages/create/index.scss",
   "components/ui/ChatBubble.scss",
   "components/ui/RingGauge.scss",

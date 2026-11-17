@@ -76,3 +76,47 @@ def validate_alipay_notify_fields(form: dict[str, str], row: PaymentOrder) -> st
         )
         return "amount_mismatch"
     return None
+
+
+def validate_stripe_session_fields(session: dict, row: PaymentOrder) -> str | None:
+    """Return error reason or None if the Checkout Session matches the pending order.
+
+    Stripe reports `amount_total` in minor units of `currency`, which is what
+    `PaymentOrder.amount_fen` stores for stripe-channel orders.
+    """
+    skip = assert_order_payable(row)
+    if skip:
+        return skip
+
+    pack_id = str((session.get("metadata") or {}).get("pack_id") or "")
+    if pack_id and pack_id != row.pack_id:
+        return "pack_mismatch"
+
+    payment_status = session.get("payment_status")
+    if payment_status not in ("paid", "no_payment_required"):
+        return "unpaid_session"
+
+    currency = str(session.get("currency") or "").upper()
+    expected_currency = (row.currency or "USD").upper()
+    if currency and currency != expected_currency:
+        logger.warning(
+            "Stripe currency mismatch out_trade_no=%s expected=%s got=%s",
+            row.out_trade_no,
+            expected_currency,
+            currency,
+        )
+        return "currency_mismatch"
+
+    try:
+        amount_total = int(session.get("amount_total"))
+    except (TypeError, ValueError):
+        return "invalid_amount_total"
+    if amount_total != row.amount_fen:
+        logger.warning(
+            "Stripe amount mismatch out_trade_no=%s expected=%s got=%s",
+            row.out_trade_no,
+            row.amount_fen,
+            amount_total,
+        )
+        return "amount_mismatch"
+    return None

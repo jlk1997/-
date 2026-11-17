@@ -13,6 +13,8 @@ ANALYTICS_LIMIT_PER_MINUTE = 120
 REGISTER_LIMIT_PER_MINUTE = 5
 LOGIN_LIMIT_PER_IP = 15
 LOGIN_LIMIT_PER_ACCOUNT = 10
+OTP_SEND_PER_EMAIL_HOUR = 8
+OTP_SEND_PER_IP_HOUR = 20
 BILLING_LIMIT_PER_USER = 10
 WEBHOOK_LIMIT_PER_IP = 120
 
@@ -35,6 +37,13 @@ def check_login_rate_limit(request, email: str | None = None) -> None:
         normalized = email.strip().lower()
         key = hashlib.sha256(normalized.encode()).hexdigest()[:16]
         check_rate_limit(f"login:acct:{key}", limit=LOGIN_LIMIT_PER_ACCOUNT, window_seconds=60)
+
+
+def check_otp_send_rate_limit(request, email: str) -> None:
+    normalized = email.strip().lower()
+    key = hashlib.sha256(normalized.encode()).hexdigest()[:16]
+    check_rate_limit(f"otp:ip:{_client_ip(request)}", limit=OTP_SEND_PER_IP_HOUR, window_seconds=3600)
+    check_rate_limit(f"otp:email:{key}", limit=OTP_SEND_PER_EMAIL_HOUR, window_seconds=3600)
 
 
 def check_billing_rate_limit(user: User) -> None:

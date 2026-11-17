@@ -31,11 +31,11 @@
   height: 160rpx;
   border-radius: $radius-md;
   background: $slate-veil;
-  border: 1rpx solid $border-ritual;
+  border: 1rpx solid $border-subtle;
   box-shadow: $shadow-sm;
 
   &--fallback {
-    background: linear-gradient(135deg, $gold-muted, rgba(5, 5, 8, 0.9));
+    background: $slate-veil;
   }
 }
 

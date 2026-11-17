@@ -1,6 +1,6 @@
-# Vibe Sorcery Platform 2.0
+# 比特音创作者 OS
 
-完整 Windows 启动说明见 **[START-WINDOWS.md](START-WINDOWS.md)**。
+完整 Windows 启动说明见 **[START-WINDOWS.md](START-WINDOWS.md)**。对外 README 是产品说明，不是论文仓库。
 
 ## 架构
 
@@ -33,12 +33,14 @@ cp .env.example .env
 # 填入 MINIMAX_API_KEY (https://platform.minimaxi.com/subscribe/token-plan)
 
 docker compose up -d postgres redis minio
-docker compose up api worker frontend
+docker compose up api worker worker-post worker-dist beat browser-farm frontend
 ```
 
 - Web H5: http://localhost:3000 （Docker） / http://localhost:10086 （`npm run dev:web`）
 - API: http://localhost:8000/docs
 - MinIO Console: http://localhost:9001
+
+生产必须跑齐 `worker`、`worker-post`、`worker-dist`、`beat`、`browser-farm`。缺 `worker-dist` 或农场时，自动化是假的。
 
 ## 本地 CLI (原版 pipeline)
 

@@ -1,5 +1,9 @@
 """Ensure ORM tables exist for integration tests against dev PostgreSQL."""
 
+import os
+
+os.environ.setdefault("VIBE_FARM_NAVIGATE", "0")
+
 import app.models.schemas  # noqa: F401 — register models on Base.metadata
 import pytest
 from sqlalchemy import text

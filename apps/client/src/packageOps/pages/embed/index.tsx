@@ -19,6 +19,7 @@ export default function EmbedPage() {
   const [brand, setBrand] = useState(copy.brand.name);
   const [logoUrl, setLogoUrl] = useState<string | undefined>();
   const [hidePoweredBy, setHidePoweredBy] = useState(false);
+  const [tenantMismatch, setTenantMismatch] = useState(false);
 
   useEffect(() => {
     if (!workId) return;
@@ -34,6 +35,14 @@ export default function EmbedPage() {
           setHidePoweredBy(Boolean(byHost.hide_powered_by));
           if (byHost.accent_color && typeof document !== "undefined") {
             document.documentElement.style.setProperty("--embed-accent", byHost.accent_color);
+          }
+          try {
+            const byWork = await vibeApi.getEmbedBranding(workId);
+            if (byHost.tenant_id && byWork.tenant_id && byHost.tenant_id !== byWork.tenant_id) {
+              setTenantMismatch(true);
+            }
+          } catch {
+            /* host branding still applies */
           }
           return;
         }
@@ -59,7 +68,7 @@ export default function EmbedPage() {
     );
   }
 
-  const track = workToPlayerTrack(work);
+  const track = workToPlayerTrack(work, { source: "embed" });
 
   return (
     <View className="embed">
@@ -69,6 +78,10 @@ export default function EmbedPage() {
         <AiGeneratedBadge compact />
       </View>
       <PlayTrackButton track={track} label={e.play} />
+      <Text className="embed__brand">{e.certified}</Text>
+      <Text className="embed__hint">{e.settleHint}</Text>
+      <Text className="embed__hint">{e.b2bHint}</Text>
+      {tenantMismatch ? <Text className="embed__hint">{e.tenantMismatch}</Text> : null}
       {!hidePoweredBy && <Text className="embed__brand embed__brand--accent">{brand}</Text>}
     </View>
   );

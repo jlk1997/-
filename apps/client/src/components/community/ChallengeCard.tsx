@@ -34,7 +34,7 @@ export function ChallengeCard({
     <View className={clsx("challenge-card", featured && "challenge-card--featured")} onClick={onClick}>
       <View className="challenge-card__hero">
         {coverUrl ? (
-          <Image className="challenge-card__cover" src={coverUrl} mode="aspectFill" />
+          <Image className="challenge-card__cover" src={coverUrl} mode="aspectFill" lazyLoad />
         ) : (
           <View className="challenge-card__cover challenge-card__cover--fallback">
             <Icon name="flag" size="lg" accent />

@@ -1,9 +1,39 @@
+.marketplace-banner {
+  padding: 28rpx 24rpx;
+  margin-bottom: 24rpx;
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  border: 1rpx solid var(--border);
+
+  &__kicker {
+    display: block;
+    color: var(--muted);
+    font-size: var(--text-micro);
+  }
+
+  &__title {
+    display: block;
+    margin-top: 8rpx;
+    color: var(--fg);
+    font-size: var(--text-meta);
+    line-height: 1.45;
+  }
+}
+
 .marketplace-card {
   padding: 24rpx;
   margin-bottom: 16rpx;
   background: var(--surface);
   border: 1rpx solid var(--border);
   border-radius: var(--radius-lg);
+
+  &__cover {
+    width: 120rpx;
+    height: 120rpx;
+    border-radius: 12rpx;
+    background: rgba(255, 255, 255, 0.06);
+    margin-bottom: 12rpx;
+  }
 
   &__title {
     font-size: var(--text-body);
@@ -12,10 +42,26 @@
     margin-bottom: 8rpx;
   }
 
+  &__author {
+    display: block;
+    font-size: var(--text-micro);
+    color: var(--muted);
+    margin-bottom: 8rpx;
+  }
+
+  &__chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8rpx;
+    margin-top: 12rpx;
+  }
+
   &__row {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
+    gap: 12rpx;
     margin-top: 16rpx;
   }
 

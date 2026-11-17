@@ -33,6 +33,17 @@ export type PlatformStudioConfig = {
   default_duration: string;
   lyrics_optimizer_default: boolean;
   cover_mode_default: string;
+  max_prompt_length?: number;
+  song_modes?: string[];
+  default_song_mode?: string;
+  freedom_levels?: string[];
+  default_freedom?: string;
+  structure_tags?: string[];
+  structure_templates?: Array<{ id: string; minutes: number }>;
+  compose_eta_p50_seconds?: number;
+  qualities?: string[];
+  wav_master_available?: boolean;
+  vocal_is_guidance?: boolean;
 };
 
 export type { MusicCreativeSpec, SoundRecipeOptions };

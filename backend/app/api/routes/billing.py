@@ -254,8 +254,10 @@ async def create_checkout(
     db: Session = Depends(get_db),
 ):
     check_billing_rate_limit(user)
-    require_payment_terms(payload.accepted_payment_terms_version)
-    return await billing_service.create_stripe_checkout(db, user, payload.pack_id)
+    terms_version = require_payment_terms(payload.accepted_payment_terms_version)
+    return await billing_service.create_stripe_checkout(
+        db, user, payload.pack_id, payment_terms_version=terms_version
+    )
 
 
 @router.post("/webhook")

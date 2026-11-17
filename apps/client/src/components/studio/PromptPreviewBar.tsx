@@ -83,6 +83,7 @@ export function PromptPreviewBar({
           {loading ? pv.loading : display || pv.empty}
         </Text>
       )}
+      <Text className="prompt-preview__label">{copy.createUi.promptCount} {display.length}/2000</Text>
       {expanded && (
         <View className="prompt-preview__raw">
           <Textarea
@@ -100,7 +101,7 @@ export function PromptPreviewBar({
             }}
           />
           <Text className="prompt-preview__label" style={{ marginTop: "8rpx", display: "block" }}>
-            {pv.editHint}
+            {copy.createUi.promptCount} {Math.min(rawPrompt.length, 2000)}/2000 · {pv.editHint}
           </Text>
         </View>
       )}

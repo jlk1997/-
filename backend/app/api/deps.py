@@ -1,7 +1,7 @@
 import uuid
 from typing import Optional
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
@@ -50,6 +50,26 @@ def get_current_user(
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
     return user
+
+
+def get_current_user_or_connector(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    x_connector_token: str | None = Header(default=None, alias="X-Connector-Token"),
+    db: Session = Depends(get_db),
+) -> User:
+    """JWT, API key, or minted vsc_ connector token — used by the extension seat loop."""
+    token = (credentials.credentials if credentials else None) or x_connector_token
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    user = _user_from_bearer_token(token, db)
+    if user:
+        return user
+    from app.services.royalty.connector import resolve_connector_actor
+
+    actor = resolve_connector_actor(db, token)
+    if actor and actor.user:
+        return actor.user
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
 
 def get_optional_user(

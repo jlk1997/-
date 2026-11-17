@@ -1,0 +1,46 @@
+.lyrics-structure {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+}
+
+.lyrics-structure__head,
+.lyrics-structure__tags,
+.lyrics-structure__ops,
+.lyrics-structure__templates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+}
+
+.lyrics-structure__count {
+  font-size: 24rpx;
+  opacity: 0.8;
+}
+
+.lyrics-structure__card {
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+  padding: 16rpx;
+  border-radius: 16rpx;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.lyrics-structure__chip {
+  min-height: 64rpx;
+  padding: 8rpx 16rpx;
+  border-radius: 999rpx;
+  font-size: 24rpx;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.lyrics-structure__chip--on {
+  background: rgba(120, 180, 255, 0.28);
+}
+
+.lyrics-structure__text {
+  width: 100%;
+  min-height: 120rpx;
+  font-size: 28rpx;
+}

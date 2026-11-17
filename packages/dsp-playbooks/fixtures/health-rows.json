@@ -1,0 +1,40 @@
+{
+  "rows": [
+    {
+      "channel_code": "netease",
+      "title": "Night Drive",
+      "isrc": "VSFIXTURE0001",
+      "streams": 120,
+      "revenue_minor": 480,
+      "currency": "CNY",
+      "period_key": "2026-08"
+    },
+    {
+      "channel_code": "qq_music",
+      "title": "Night Drive",
+      "isrc": "VSFIXTURE0001",
+      "streams": 80,
+      "revenue_minor": 320,
+      "currency": "CNY",
+      "period_key": "2026-08"
+    },
+    {
+      "channel_code": "qishui",
+      "title": "Night Drive",
+      "isrc": "VSFIXTURE0001",
+      "streams": 60,
+      "revenue_minor": 240,
+      "currency": "CNY",
+      "period_key": "2026-08"
+    },
+    {
+      "channel_code": "spotify",
+      "title": "Night Drive",
+      "isrc": "VSFIXTURE0001",
+      "streams": 40,
+      "revenue_minor": 120,
+      "currency": "USD",
+      "period_key": "2026-08"
+    }
+  ]
+}
